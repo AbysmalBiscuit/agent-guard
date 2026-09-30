@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "include-component-in-tag": false,
+  "packages": {
+    ".": {
+      "release-type": "python",
+      "package-name": "agent-guard",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": true,
+      "extra-files": [
+        { "type": "json", "path": "plugin/.claude-plugin/plugin.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "plugin/.codex-plugin/plugin.json", "jsonpath": "$.version" },
+        { "type": "toml", "path": "uv.lock", "jsonpath": "$.package[?(@.name.value=='agent-guard')].version" }
+      ]
+    }
+  }
+}
