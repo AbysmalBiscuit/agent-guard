@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# SessionStart hook: install the tools agent-guard's checks run, ast-grep and
+# fallow, when they are missing, through scripts/install.sh.
+#
+# Neither Claude Code nor Codex has an install lifecycle hook, so this runs at
+# session start instead. Output goes to stderr: a SessionStart hook's stdout
+# becomes model context.
+#
+# Every failure path exits 0: a session must start even with no network.
+
+set -uo pipefail
+
+[ "${AGENT_GUARD_NO_BOOTSTRAP:-}" = "1" ] && exit 0
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+MANIFEST="${PLUGIN_ROOT}/.claude-plugin/plugin.json"
+BIN_DIR="${XDG_BIN_HOME:-${HOME}/.local/bin}"
+
+warn() { printf 'agent-guard: %s\n' "$1" >&2; }
+
+missing=""
+for tool in ast-grep fallow; do
+	command -v "$tool" >/dev/null 2>&1 && continue
+	if [ -e "${BIN_DIR}/${tool}" ] || [ -e "${BIN_DIR}/${tool}.exe" ]; then
+		warn "${tool} is in ${BIN_DIR}, which is not on PATH; add it so the hooks find ${tool}"
+	else
+		missing="${missing} ${tool}"
+	fi
+done
+[ -z "$missing" ] && exit 0
+
+version=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$MANIFEST" 2>/dev/null | head -1)
+state_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/agent-guard"
+failed="${state_dir}/bootstrap-failed"
+
+# One attempt per plugin version, so an offline machine does not retry the
+# download at every session start.
+if [ "$(cat "$failed" 2>/dev/null || true)" = "${version:-unknown}" ]; then
+	warn "installing${missing} failed previously; run bash ${PLUGIN_ROOT}/scripts/install.sh yourself, or remove ${failed} to retry"
+	exit 0
+fi
+
+warn "installing${missing}"
+# The uv installer would otherwise edit shell profiles, which a hook must not
+# do unasked.
+UV_NO_MODIFY_PATH=1 bash "${PLUGIN_ROOT}/scripts/install.sh" >&2
+status=$?
+
+if [ "$status" -ne 0 ]; then
+	mkdir -p "$state_dir" 2>/dev/null && printf '%s\n' "${version:-unknown}" >"$failed" 2>/dev/null
+	warn "install.sh exited ${status}; run bash ${PLUGIN_ROOT}/scripts/install.sh to see why"
+	exit 0
+fi
+
+rm -f "$failed" 2>/dev/null
+exit 0
