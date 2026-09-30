@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Installs the tools agent-guard runs but does not ship: uv, and fallow for the
-# changeset audit. A tool already on PATH is left alone.
+# Installs the tools agent-guard runs but does not ship: ast-grep for the rules,
+# fallow for the changeset audit, and uv, which installs ast-grep. A tool
+# already on PATH is left alone.
 set -euo pipefail
 
 BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
@@ -26,9 +27,29 @@ install_uv() {
 		say "uv found at $(command -v uv)"
 		return
 	fi
-	need curl uv
 	say "installing uv"
-	curl -LsSf https://astral.sh/uv/install.sh | sh
+	case "$(uname -s)" in
+	MINGW* | MSYS* | CYGWIN*)
+		powershell.exe -NoProfile -ExecutionPolicy Bypass \
+			-Command "irm https://astral.sh/uv/install.ps1 | iex"
+		;;
+	*)
+		need curl uv
+		curl -LsSf https://astral.sh/uv/install.sh | sh
+		;;
+	esac
+}
+
+install_ast_grep() {
+	if command -v ast-grep >/dev/null; then
+		say "ast-grep found at $(command -v ast-grep)"
+		return
+	fi
+	local uv
+	# A uv installed moments ago is not on this shell's PATH yet.
+	uv="$(command -v uv || printf '%s/uv' "$BIN_DIR")"
+	say "installing ast-grep with uv"
+	"$uv" tool install ast-grep-cli
 }
 
 fallow_asset() {
@@ -36,6 +57,7 @@ fallow_asset() {
 	case "$(uname -s)" in
 	Linux) os=linux ;;
 	Darwin) os=darwin ;;
+	MINGW* | MSYS* | CYGWIN*) os=win32 ;;
 	*) die "no fallow build for $(uname -s); see https://github.com/fallow-rs/fallow" ;;
 	esac
 	case "$(uname -m)" in
@@ -43,10 +65,16 @@ fallow_asset() {
 	aarch64 | arm64) arch=arm64 ;;
 	*) die "no fallow build for $(uname -m)" ;;
 	esac
-	if [[ $os == darwin ]]; then
+	case "$os" in
+	darwin)
 		printf 'fallow-darwin-%s\n' "$arch"
 		return
-	fi
+		;;
+	win32)
+		printf 'fallow-win32-%s-msvc.exe\n' "$arch"
+		return
+		;;
+	esac
 	if ldd --version 2>&1 | grep -qi musl; then
 		libc=musl
 	fi
@@ -73,13 +101,17 @@ install_fallow() {
 		-in "$tmp/$asset" -sigfile "$tmp/$asset.sig" >/dev/null 2>&1 ||
 		die "signature check failed for $asset; this needs OpenSSL 3, or install fallow with: npm install -g fallow"
 
+	local exe=""
+	[[ $asset == *.exe ]] && exe=.exe
 	mkdir -p "$BIN_DIR"
-	install -m 755 "$tmp/$asset" "$BIN_DIR/fallow"
-	case ":$PATH:" in
-	*":$BIN_DIR:"*) ;;
-	*) say "add $BIN_DIR to PATH so the hooks can find fallow" ;;
-	esac
+	install -m 755 "$tmp/$asset" "$BIN_DIR/fallow$exe"
 }
 
 install_uv
+install_ast_grep
 install_fallow
+
+case ":$PATH:" in
+*":$BIN_DIR:"*) ;;
+*) say "add $BIN_DIR to PATH so the hooks can find the tools" ;;
+esac

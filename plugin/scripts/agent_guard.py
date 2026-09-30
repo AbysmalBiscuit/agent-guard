@@ -1255,13 +1255,18 @@ def doctor(cwd):
     print()
     print(f"  tool_checks      : {'on' if settings.tool_checks else 'off'}")
     print("  mandatory/       : always on; no config key or root reaches it")
-    print("  ast-grep missing -> per-file rules skipped (checks/ still run)")
-    print("  fallow missing   -> changeset duplication check skipped")
-    print("  rg missing       -> over-extraction check skipped")
-    print("  scope=diff       -> per-file findings limited to lines the branch")
-    print("                      added; findings older than it stay quiet")
-    print("  only the global root listed -> nothing here opted in, so only the")
-    print("                      layers named by `always` run")
+    if not have("ast-grep"):
+        print("  ast-grep missing -> per-file rules skipped (checks/ still run)")
+    if not have("fallow"):
+        print("  fallow missing   -> changeset duplication check skipped")
+    if not have("rg"):
+        print("  rg missing       -> over-extraction check skipped")
+    if settings.scope == "diff":
+        print("  scope=diff       -> per-file findings limited to lines the branch")
+        print("                      added; findings older than it stay quiet")
+    if len(roots) == 1:
+        print("  only the global root listed -> nothing here opted in, so only the")
+        print("                      layers named by `always` run")
     sys.exit(0)
 
 
