@@ -1,0 +1,70 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|exec_command|shell_command|shell|apply_patch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
+            "commandWindows": "python \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
+            "timeout": 8,
+            "statusMessage": "Checking tool conventions"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^apply_patch$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
+            "commandWindows": "python \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
+            "timeout": 10,
+            "statusMessage": "Checking conventions"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
+            "commandWindows": "python \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
+            "timeout": 60,
+            "statusMessage": "Auditing changeset"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
+            "commandWindows": "python \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
+            "timeout": 60,
+            "statusMessage": "Auditing changeset"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
+            "commandWindows": "python \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

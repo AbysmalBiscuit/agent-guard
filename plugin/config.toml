@@ -1,0 +1,106 @@
+# agent-guard settings, read by scripts/agent_guard.py beside this file.
+#
+# This is the global layer, and on its own it does nothing: the hook runs only
+# where some directory at or above the working directory holds
+# .agents/plugins/agent-guard/ (tracked) or .agents/plugins/agent-guard.local/
+# (machine-local). Those are discovered by walking up from the working
+# directory, outermost first, so a checkout layers over the directory holding
+# every checkout of that project, which layers over this file. A root holds any
+# of a rules/ directory, a checks/ or tool_checks/ directory, and a config.toml;
+# it needs its own sgconfig.yml only to register a custom language. Each
+# config.toml is read in that order, so a
+# nearer one tightens any setting below without editing it. An
+# AGENT_GUARD_<KEY> environment variable outranks every file for one run.
+#
+# Run `python3 <plugin root>/scripts/agent_guard.py doctor` inside a tree to
+# list the roots actually found.
+
+# Layers that still run where no tree has opted in. A tree opts in by carrying
+# its own .agents/plugins/agent-guard directory, and one that has runs every
+# layer regardless of this.
+#
+#   tool_checks  the PreToolUse guards. These describe the machine rather than
+#                any project: which search tools are installed, and that agents
+#                share one working tree.
+#   checks       the per-file scripts, so the markdown wrap rule follows you
+#                into every directory.
+#   rules        the ast-grep rules. Left out: they are TypeScript comment
+#                conventions, and firing them in a repo that never asked for
+#                them is the noise agents learn to skim past.
+#   changeset    the Stop-time duplication and over-extraction audit. Left out:
+#                it reads a branch's merge-base, which assumes a project shape.
+always = ["tool_checks", "checks"]
+
+# What each run appends to ~/agent-guard.log: 0 nothing, 1 the call and its
+# decision, 2 every check's verdict, 3 the command text too. A checkout with
+# no level of its own runs at this one.
+log = 1
+
+# Blocking is off until the rules prove they stay quiet on good code.
+# true lets Stop/SubagentStop actually refuse to finish.
+block = false
+
+# Cap on how many times one session may be blocked before the hook downgrades
+# itself to advisory. There is no built-in loop protection on Stop hooks.
+max_blocks = 2
+
+# mandatory/ beside this file is the tier no setting below reaches. It holds
+# PreToolUse scripts under the same contract as tool_checks/, read from the
+# global install alone and resolved from the hook script's own location, so
+# neither a checkout's config.toml nor AGENT_GUARD_CONFIG_DIR can move or
+# silence it. A script changes tier by changing directory. Put a rule there only
+# when being non-negotiable is the whole point of it: secret decryption is, a
+# style convention is not.
+#
+# It runs on shell tools alone, so a script that breaks cannot also block the
+# edit that would fix it. A rule about what a file may contain belongs in
+# tool_checks/, which sees every write.
+
+# PreToolUse Python scripts under a root's tool_checks/, each given the tool name
+# as its argument and the hook payload on stdin. Empty stdout is silence; stdout
+# with exit 0 is advisory; stdout with exit 2 hands the call to the human to
+# allow or refuse; any other non-zero exit denies it. false is the kill switch
+# when one of them misfires and starts refusing real work.
+tool_checks = true
+
+# Cross-file analysis via fallow on Stop/SubagentStop. false for per-file only.
+fallow = true
+fallow_timeout = 45
+
+# Findings shown per report, so feedback stays inside working memory.
+max_findings = 8
+
+# Exported functions reference-counted per changeset, bounding a wide diff.
+max_symbols = 40
+
+# Flag an export whose only consumer is its own test. false where a parity test
+# is deliberately the sole caller of a path still being migrated onto.
+test_only = true
+
+# Also flag exported functions with exactly one caller. Off by default: a single
+# caller is often a legitimate module boundary, and the rule is noisy.
+single_caller = false
+
+# Which lines per-file findings are reported on. "diff" keeps only the lines the
+# branch introduced; "file" reports the whole file.
+scope = "diff"
+
+# Which files the per-file rules run on. A repo whose rules target another
+# language widens this in its own config.toml. Single quotes are a TOML literal
+# string, so the backslashes reach the regex engine as written.
+#
+# Wider than the ast-grep rules, which are language-scoped and stay quiet on
+# everything they were not written for. The rest is here for checks/: markdown
+# for markdown_hard_wrap.py, and every other language for comment_length.py,
+# whose conventions are the ones an agent breaks in a config file as readily as
+# in a source file. Dropping a language from this list is the off switch for
+# checking it.
+extensions = '\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|pyi|rs|go|sh|bash|sql|toml|ya?ml|md|mdx|markdown)$'
+
+# Paths the hook skips entirely: code that is generated rather than written, and
+# vendored code the tree does not own. This holds only the shapes every
+# TypeScript tree shares; a project names its own directories through
+# ignore_extra, which is appended to this rather than replacing it. Match both
+# separators, because a hook payload carries whatever form the platform uses.
+# ignore = '\.gen\.|[/\\](generated|__generated__|node_modules)[/\\]|\.d\.ts$'
+# ignore_extra = '[/\\](db-types|api-client)[/\\]'

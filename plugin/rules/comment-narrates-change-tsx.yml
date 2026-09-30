@@ -1,0 +1,7 @@
+id: comment-narrates-change-tsx
+language: tsx
+severity: warning
+message: "comment narrates a change instead of describing behavior; state what the code does, in present tense"
+rule:
+  kind: comment
+  regex: '(?i)(this (PR|commit|changeset)|now we |we now |used to be |for now,|as requested|see Task |Class [AB][ :]|failing until|make (this|the) (assertion|test)s? pass)'

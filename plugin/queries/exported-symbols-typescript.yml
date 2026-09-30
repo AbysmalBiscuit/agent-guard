@@ -1,0 +1,19 @@
+id: exported-symbols-typescript
+language: typescript
+message: "exported function"
+rule:
+  kind: export_statement
+  has:
+    any:
+      - kind: function_declaration
+        has: { field: name, kind: identifier, pattern: $NAME }
+      - kind: lexical_declaration
+        has:
+          kind: variable_declarator
+          all:
+            - has: { field: name, kind: identifier, pattern: $NAME }
+            - has:
+                field: value
+                any:
+                  - { kind: arrow_function }
+                  - { kind: function_expression }

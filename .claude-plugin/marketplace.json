@@ -1,0 +1,12 @@
+{
+  "name": "agent-guard",
+  "description": "Agent Guard hook checks for Claude Code",
+  "owner": { "name": "Lev Velykoivanenko" },
+  "plugins": [
+    {
+      "name": "agent-guard",
+      "source": "./plugin",
+      "description": "Checks agent tool calls, edits, and changesets against local rules."
+    }
+  ]
+}
