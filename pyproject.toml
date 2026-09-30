@@ -1,0 +1,79 @@
+[project]
+name = "agent-guard"
+version = "0.1.0"
+description = "Claude Code and Codex plugin that checks agent tool calls, edits, and changesets against local rules."
+readme = "README.md"
+license = "GPL-3.0-or-later"
+authors = [{ name = "Lev Velykoivanenko" }]
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "ast-grep-cli>=0.45.3",
+    "pyrefly",
+    "ruff",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-include = ["plugin/**/*.py"]
+
+[tool.ruff.lint]
+select = [
+    "A",
+    "ARG",
+    "B",
+    "BLE",
+    "C4",
+    "DTZ",
+    "E",
+    "EXE",
+    "F",
+    "FLY",
+    "I",
+    "ISC",
+    "N",
+    "PERF",
+    "PGH",
+    "PIE",
+    "PL",
+    "PYI",
+    "RET",
+    "RSE",
+    "RUF",
+    "S",
+    "SIM",
+    "SLF",
+    "TID",
+    "TRY",
+    "UP",
+    "W",
+]
+# A hook that breaks must stay silent rather than block the agent, so broad
+# excepts and swallowed errors are the design, not an oversight.
+ignore = [
+    "BLE001",
+    "PLR0911",
+    "PLR0912",
+    "PLR0913",
+    "PLR0915",
+    "PLR0917",
+    "PLR2004",
+    "PLW0603",
+    "PLW2901",
+    "S105",
+    "S603",
+    "S607",
+    "TRY003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"plugin/tests/*" = ["N999", "PLW1510", "S", "SLF001", "UP031"]
+
+[tool.pyrefly]
+project-includes = ["plugin/**/*.py"]
