@@ -1,0 +1,68 @@
+#:schema https://github.com/AbysmalBiscuit/devkit/releases/latest/download/devkit-config.json
+
+[defaults]
+worktree_root = "../agent-guard_worktrees/"
+baseline_ref = "origin/main"
+pr_create_state = "ready"
+
+[tracker]
+kind = "github"
+
+[harness]
+enforce_writes = true
+enforce_commands = true
+
+[tasks.sync]
+description = "Install the dev tools from uv.lock"
+run = ["uv", "sync", "--locked"]
+guard = true
+
+[tasks.lint]
+description = "Lint with ruff"
+run = ["uv", "run", "ruff", "check"]
+guard = true
+
+[tasks.fmt]
+description = "Format with ruff"
+run = ["uv", "run", "ruff", "format"]
+guard = true
+
+[tasks.fmt-check]
+description = "Check formatting with ruff"
+run = ["uv", "run", "ruff", "format", "--check"]
+guard = true
+
+[tasks.typecheck]
+description = "Type check with pyrefly"
+run = ["uv", "run", "pyrefly", "check"]
+guard = true
+
+[tasks.test]
+description = "Run the plugin test suite"
+run = ["uv", "run", "python", "plugin/tests/run.py"]
+guard = true
+
+[tasks.validate]
+description = "Validate the Claude Code plugin and marketplace manifests"
+steps = [{ task = "validate-plugin" }, { task = "validate-marketplace" }]
+
+[tasks.validate-plugin]
+description = "Validate the Claude Code plugin manifest"
+run = ["claude", "plugin", "validate", "plugin"]
+guard = true
+
+[tasks.validate-marketplace]
+description = "Validate the Claude Code marketplace manifest"
+run = ["claude", "plugin", "validate", "."]
+guard = true
+
+[tasks.verify]
+description = "Lint, check formatting and types, test, and validate manifests"
+steps = [
+    { task = "lint" },
+    { task = "fmt-check" },
+    { task = "typecheck" },
+    { task = "test" },
+    { task = "validate-plugin" },
+    { task = "validate-marketplace" },
+]
