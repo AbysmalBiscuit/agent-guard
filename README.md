@@ -35,6 +35,12 @@ Then install Agent Guard from the Plugins Directory. Codex skips plugin hooks un
 - `python3` 3.11 or newer on `PATH`. The hooks use only the standard library.
 - Optional: `ast-grep` for `rules/`, `fallow` for the changeset audit, `git` for diff scoping. Each feature stays silent when its tool is missing.
 
+`plugin/scripts/install.sh` installs uv and fallow on Linux and macOS, skipping whichever is already on `PATH`. fallow comes from its latest GitHub release into `$XDG_BIN_HOME` (default `~/.local/bin`), after its Ed25519 signature is checked with OpenSSL 3.
+
+```sh
+bash plugin/scripts/install.sh
+```
+
 ## Configuration
 
 `plugin/config.toml` is the global layer and documents every setting. On top of it, the hook discovers roots by walking up from the working directory: any directory holding `.agents/plugins/agent-guard/` (tracked) or `.agents/plugins/agent-guard.local/` (machine-local). Each root can carry `rules/`, `checks/`, `tool_checks/`, and a `config.toml` that tightens the settings below it. An `AGENT_GUARD_<KEY>` environment variable outranks every file for one run.
