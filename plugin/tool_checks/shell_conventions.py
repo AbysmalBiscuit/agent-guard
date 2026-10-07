@@ -26,6 +26,7 @@ The `rg -r<flags>` footgun has a hook of its own and is deliberately absent here
 import json
 import re
 import shlex
+import shutil
 import sys
 
 # Pipes, lists, subshells, redirections and process substitutions all start a
@@ -168,8 +169,8 @@ def git_subcommand(args):
 
 
 def legacy_tool(seg):
-    """A search tool this machine has a better answer for."""
-    if seg.name == "find":
+    """A search tool this machine has a better answer for, when that answer is installed."""
+    if seg.name == "find" and shutil.which("fd"):
         rewrite = find_rewrite(seg.args)
         detail = (
             f"Run `{rewrite}` instead."
@@ -179,7 +180,7 @@ def legacy_tool(seg):
         )
         return f"find is replaced by fd on this machine. {detail}"
 
-    if seg.name in ("grep", "egrep", "fgrep"):
+    if seg.name in ("grep", "egrep", "fgrep") and shutil.which("rg"):
         recursive = any(a in GREP_RECURSIVE for a in seg.args)
         # The first bare word is the pattern; a second one is a path, which makes
         # this a search of the filesystem rather than of a stream.
@@ -199,7 +200,7 @@ def legacy_tool(seg):
             "name: `ast-grep -p 'PATTERN'`, or `ast-grep -p 'PAT' -r 'NEW'` to rewrite."
         )
 
-    if seg.name == "ls" and any(a in LS_RECURSIVE for a in seg.args):
+    if seg.name == "ls" and any(a in LS_RECURSIVE for a in seg.args) and shutil.which("fd"):
         return (
             "ls -R is replaced by fd: `fd -t f` for every file, `fd -t d` for "
             "directories. Plain `ls -la` for one directory is fine."
@@ -213,7 +214,7 @@ def redundant_pipeline(prev, seg):
         return None
     sink = seg.name in ("rg", "grep", "egrep", "fgrep")
 
-    if prev.name == "cat" and sink:
+    if prev.name == "cat" and sink and shutil.which("rg"):
         files = " ".join(operands(prev.args, set())) or "FILE"
         return (
             f"rg reads files directly. Run `rg PATTERN {files}` instead of piping "
@@ -233,7 +234,7 @@ def redundant_pipeline(prev, seg):
             "Pass the pattern to fd: `fd PATTERN path/`."
         )
 
-    if prev.name == "rg" and "--files" in prev.args and sink:
+    if prev.name == "rg" and "--files" in prev.args and sink and shutil.which("fd"):
         return "`rg --files | rg PATTERN` is `fd PATTERN`. Call fd directly."
 
     if prev.name == "rg" and seg.name == "cut":
