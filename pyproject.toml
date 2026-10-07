@@ -1,6 +1,6 @@
 [project]
 name = "agent-guard"
-version = "0.1.1"
+version = "0.1.2"
 description = "Claude Code and Codex plugin that checks agent tool calls, edits, and changesets against local rules."
 readme = "README.md"
 license = "GPL-3.0-or-later"

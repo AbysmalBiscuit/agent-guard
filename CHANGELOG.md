@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/AbysmalBiscuit/agent-guard/compare/v0.1.1...v0.1.2) (2026-10-07)
+
+
+### Bug Fixes
+
+* deny find and grep only where fd and rg exist ([#3](https://github.com/AbysmalBiscuit/agent-guard/issues/3)) ([ae585dd](https://github.com/AbysmalBiscuit/agent-guard/commit/ae585dd72f36532c64b3747ecbc43342d0ed42bd))
+
 ## [0.1.1](https://github.com/AbysmalBiscuit/agent-guard/compare/v0.1.0...v0.1.1) (2026-09-30)
 
 
