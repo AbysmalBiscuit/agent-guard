@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/AbysmalBiscuit/agent-guard/compare/v0.1.2...v0.1.3) (2026-10-09)
+
+
+### Bug Fixes
+
+* use full name as codex plugin developer ([#5](https://github.com/AbysmalBiscuit/agent-guard/issues/5)) ([c3f41ec](https://github.com/AbysmalBiscuit/agent-guard/commit/c3f41ec24455f7adb86b0564d9005849128c7432))
+
 ## [0.1.2](https://github.com/AbysmalBiscuit/agent-guard/compare/v0.1.1...v0.1.2) (2026-10-07)
 
 
