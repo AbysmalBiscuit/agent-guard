@@ -18,7 +18,7 @@
     "displayName": "Agent Guard",
     "shortDescription": "Check agent work against local rules.",
     "longDescription": "Agent Guard checks tool calls, edited files, and changesets against machine and repository conventions.",
-    "developerName": "Lev",
+    "developerName": "Lev Velykoivanenko",
     "category": "Developer Tools",
     "capabilities": [
       "Hooks"
