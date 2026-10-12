@@ -32,6 +32,7 @@ from pathlib import Path
 
 _watchdog = None
 CODEX = "--codex" in sys.argv[1:]
+GROK = "--grok" in sys.argv[1:]
 
 
 def _env_setting(key):
@@ -532,6 +533,10 @@ ASK_EXIT = 2
 # under. The mandatory tier is scoped to these.
 SHELL_TOOLS = frozenset({"Bash", "PowerShell", "exec_command", "shell_command", "shell"})
 
+# Grok Build tools whose input matches a Claude Code tool's, renamed so every
+# check, including those in a project's own roots, reads one vocabulary.
+GROK_TOOL_NAMES = {"run_terminal_command": "Bash", "search_replace": "Edit", "write": "Write"}
+
 
 def emit_silent():
     sys.exit(0)
@@ -544,7 +549,7 @@ def emit(event, context, deny="", ask=""):
     The reason is repeated in `additionalContext` by the caller, so a harness
     that does not implement the ask decision still tells the model why the call
     was questioned rather than dropping the finding on the floor."""
-    if CODEX and event in ("Stop", "SubagentStop"):
+    if (CODEX or GROK) and event in ("Stop", "SubagentStop"):
         out = {"decision": "block", "reason": context} if deny else {"systemMessage": context}
         sys.stdout.write(json.dumps(out, separators=(",", ":")) + "\n")
         sys.stdout.flush()
@@ -1271,7 +1276,7 @@ def doctor(cwd):
 
 
 def main():
-    args = [arg for arg in sys.argv[1:] if arg != "--codex"]
+    args = [arg for arg in sys.argv[1:] if arg not in ("--codex", "--grok")]
     argv_event = args[0] if args else ""
     if argv_event == "doctor":
         doctor(Path.cwd())
@@ -1286,7 +1291,13 @@ def main():
 
     event = argv_event or payload.get("hook_event_name") or ""
     session = payload.get("session_id") or "nosession"
-    agent_type = payload.get("agent_type") or ""
+    agent_type = payload.get("agent_type") or payload.get("subagentType") or ""
+    if GROK:
+        tool_name = payload.get("tool_name") or ""
+        payload["tool_name"] = GROK_TOOL_NAMES.get(tool_name, tool_name)
+        # Grok also fires Stop at session teardown, where it ignores the answer.
+        if event == "Stop" and payload.get("reason") != "end_turn":
+            sys.exit(0)
 
     cwd = Path.cwd()
     declared = payload.get("cwd") or ""
