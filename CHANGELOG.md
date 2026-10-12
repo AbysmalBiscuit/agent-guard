@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/AbysmalBiscuit/agent-guard/compare/v0.1.3...v0.1.4) (2026-10-12)
+
+
+### Features
+
+* add grok build plugin package ([#7](https://github.com/AbysmalBiscuit/agent-guard/issues/7)) ([2faf5ba](https://github.com/AbysmalBiscuit/agent-guard/commit/2faf5ba3b03a3ef2976adafdc2fb40fdc383d5e4))
+
 ## [0.1.3](https://github.com/AbysmalBiscuit/agent-guard/compare/v0.1.2...v0.1.3) (2026-10-09)
 
 
