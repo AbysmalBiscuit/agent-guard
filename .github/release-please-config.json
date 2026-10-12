@@ -10,6 +10,7 @@
       "extra-files": [
         { "type": "json", "path": "plugin/.claude-plugin/plugin.json", "jsonpath": "$.version" },
         { "type": "json", "path": "plugin/.codex-plugin/plugin.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "plugin/.grok-plugin/plugin.json", "jsonpath": "$.version" },
         { "type": "toml", "path": "uv.lock", "jsonpath": "$.package[?(@.name.value=='agent-guard')].version" }
       ]
     }

@@ -1,0 +1,17 @@
+{
+  "name": "agent-guard",
+  "version": "0.1.3",
+  "description": "Checks agent tool calls, edits, and changesets against local rules.",
+  "author": {
+    "name": "Lev Velykoivanenko"
+  },
+  "homepage": "https://github.com/AbysmalBiscuit/agent-guard",
+  "repository": "https://github.com/AbysmalBiscuit/agent-guard",
+  "license": "GPL-3.0-or-later",
+  "keywords": [
+    "hooks",
+    "guardrails",
+    "code-quality"
+  ],
+  "hooks": "./hooks/hooks-grok.json"
+}

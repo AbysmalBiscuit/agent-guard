@@ -1,6 +1,6 @@
 # agent-guard
 
-A Claude Code and Codex plugin that checks what a coding agent does against local rules and feeds violations back to the model while it works.
+A Claude Code, Codex, and Grok Build plugin that checks what a coding agent does against local rules and feeds violations back to the model while it works.
 
 One hook script, `plugin/scripts/agent_guard.py`, handles every hook event:
 
@@ -31,6 +31,16 @@ codex plugin add agent-guard@agent-guard
 ```
 
 Codex skips plugin hooks until you review and trust them, so open a session and approve them before expecting any output.
+
+Grok Build:
+
+```sh
+grok plugin marketplace add AbysmalBiscuit/agent-guard
+grok plugin install agent-guard --trust
+grok plugin enable agent-guard
+```
+
+Grok Build reads `.grok-plugin/` ahead of `.claude-plugin/`, so it installs its own manifest and `hooks/hooks-grok.json` and never loads the Claude Code hooks. Those hooks pass `--grok`, which renames Grok's `run_terminal_command`, `search_replace`, and `write` to `Bash`, `Edit`, and `Write` before any check runs, so checks only ever see Claude's names. Edits through `hashline_edit` get the per-file checks but skip the `tool_checks/` that read the edit's text.
 
 ### Requirements
 
@@ -78,7 +88,7 @@ Then check what the hook resolves from inside the tree:
 python3 <plugin root>/scripts/agent_guard.py doctor
 ```
 
-`<plugin root>` is the installed copy, `~/.claude/plugins/cache/agent-guard/agent-guard/<version>/` for Claude Code or `~/.codex/plugins/cache/agent-guard/agent-guard/<version>/` for Codex. `doctor` lists the roots it found, the rules and checks each one holds, the effective settings, and which optional tools are on `PATH`.
+`<plugin root>` is the installed copy, `~/.claude/plugins/cache/agent-guard/agent-guard/<version>/` for Claude Code or `~/.codex/plugins/cache/agent-guard/agent-guard/<version>/` for Codex. For Grok Build, `grok plugin details agent-guard` prints where it is installed. `doctor` lists the roots it found, the rules and checks each one holds, the effective settings, and which optional tools are on `PATH`.
 
 ## Configuration
 
@@ -131,11 +141,14 @@ Each bundled script's docstring explains what it enforces and why, so read one a
 ```text
 .claude-plugin/marketplace.json   Claude Code marketplace
 .agents/plugins/marketplace.json  Codex marketplace
+.grok-plugin/marketplace.json     Grok Build marketplace
 plugin/
   .claude-plugin/plugin.json      Claude Code manifest
   .codex-plugin/plugin.json       Codex manifest
+  .grok-plugin/plugin.json        Grok Build manifest
   hooks/hooks.json                Claude Code hooks
   hooks/hooks-codex.json          Codex hooks
+  hooks/hooks-grok.json           Grok Build hooks
   hooks/bootstrap-tools           SessionStart tool installer
   hooks/run-hook.cmd              cross-platform launcher for bash hooks
   scripts/                        hook entry point and helpers

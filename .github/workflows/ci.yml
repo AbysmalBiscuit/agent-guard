@@ -50,5 +50,5 @@ jobs:
       - run: npm install --global @anthropic-ai/claude-code
       - run: claude plugin validate plugin
       - run: claude plugin validate .
-      - name: Codex manifests and hooks parse as JSON
-        run: jq empty .agents/plugins/marketplace.json plugin/.codex-plugin/plugin.json plugin/hooks/*.json
+      - name: Codex and Grok Build manifests and hooks parse as JSON
+        run: jq empty .agents/plugins/marketplace.json .grok-plugin/marketplace.json plugin/.codex-plugin/plugin.json plugin/.grok-plugin/plugin.json plugin/hooks/*.json
