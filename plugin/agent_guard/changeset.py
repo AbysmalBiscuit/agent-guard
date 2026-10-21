@@ -710,28 +710,12 @@ def find_python(changed, settings, cwd, base, budget, seen_file=None):
     return "\n".join(sections)
 
 
-def _length_globs(settings):
-    """Pathspecs for the file types a tree asked the length check to read."""
-    globs = []
-    for limit in settings.file_length.limits:
-        if limit.pattern:
-            globs.append(limit.pattern)
-            continue
-        match = re.fullmatch(r"\\\.([A-Za-z0-9]+)\$$", limit.extensions)
-        if match:
-            globs.append(f"*.{match.group(1)}")
-    return tuple(globs)
-
-
 def source_globs(settings):
     """File types the changeset listing reads. Python globs join only when a
-    tree turned a Python analysis on, so an opted-out tree keeps its old list.
-    Length globs join only when that check is on."""
+    tree turned a Python analysis on, so an opted-out tree keeps its old list."""
     globs = SOURCE_GLOBS
     if any(analysis.enabled for analysis in settings.python.values()):
         globs = (*globs, *PYTHON_GLOBS)
-    if settings.file_length.enabled:
-        globs = (*globs, *_length_globs(settings))
     return globs
 
 
@@ -777,6 +761,56 @@ def find_file_length(changed, settings, cwd):
     return "\n".join(lines[: settings.max_findings]), blocks
 
 
+def _length_pattern_match(rel, pattern):
+    """Git's default pathspec: `*` stays in one segment, `**` crosses them.
+
+    A pattern matches the whole relative path. `src/app.rs` does not match
+    `vendor/src/app.rs`."""
+    parts = pattern.replace("\\", "/").split("/")
+    expr = r"\A"
+    for index, part in enumerate(parts):
+        if part == "**":
+            expr += r"(?:.*(?:/)?)?"
+            continue
+        if index:
+            expr += r"/"
+        expr += _length_segment(part)
+    return re.fullmatch(expr, rel.replace("\\", "/")) is not None
+
+
+def _length_segment(part):
+    out = []
+    for char in part:
+        if char == "*":
+            out.append(r"[^/]*")
+        elif char == "?":
+            out.append(r"[^/]")
+        else:
+            out.append(re.escape(char))
+    return "".join(out)
+
+
+def _length_covered(rel, limits):
+    """A changed file the length check was asked to read."""
+    for limit in limits:
+        if limit.pattern and _length_pattern_match(rel, limit.pattern):
+            return True
+        if limit.ext_re is not None and limit.ext_re.search(rel):
+            return True
+    return False
+
+
+def _length_files(base, cwd, settings):
+    """Changed files the length check reads. The listing takes no pathspec, so an alternation regex still selects its types."""
+    if not settings.file_length.enabled:
+        return []
+    return [
+        rel
+        for rel in changed_files(base, cwd, ())
+        if rel.strip() and _length_covered(rel, settings.file_length.limits)
+    ]
+
+
 def _length_limit(rel, limits):
     """A named path or glob outranks an extension regex.
 
@@ -785,7 +819,7 @@ def _length_limit(rel, limits):
     named = [limit for limit in limits if limit.pattern]
     typed = [limit for limit in limits if limit.ext_re is not None]
     for limit in named:
-        if Path(rel).match(limit.pattern):
+        if _length_pattern_match(rel, limit.pattern):
             return limit
     for limit in typed:
         if limit.ext_re.search(rel):
@@ -840,6 +874,8 @@ def check_changeset(session, agent_type, roots, settings, cwd):
     base = git_base(settings, cwd)
     globs = source_globs(settings)
     changed = changed_files(base, cwd, globs)
+    length_changed = _length_files(base, cwd, settings)
+    changed = list(dict.fromkeys([*changed, *length_changed]))
     # Before the source-glob gate: the duplication audit reads TS and JS, but a
     # changeset-check speaks for whatever files its own rule covers, and a
     # branch that touched only markdown or shell still has to answer for them.
@@ -865,6 +901,7 @@ def check_changeset(session, agent_type, roots, settings, cwd):
     fingerprint = (
         changeset_fingerprint(base, changed, cwd, globs)
         + hashlib.sha1(violations.encode("utf-8", "replace"), usedforsecurity=False).hexdigest()
+        + changeset_fingerprint(base, length_changed, cwd, ())
     )
     last = sdir / "last-diff"
     try:
@@ -902,7 +939,7 @@ def check_changeset(session, agent_type, roots, settings, cwd):
         sections.append(
             f"{who} introduced findings the tree asked this audit to report:\n\n{python}\n"
         )
-    length_text, length_blocks = find_file_length(changed, settings, cwd)
+    length_text, length_blocks = find_file_length(length_changed, settings, cwd)
     if length_text:
         sections.append(
             f"{who} changed files past a length limit this tree set:\n\n{length_text}\n"
