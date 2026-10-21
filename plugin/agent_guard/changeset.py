@@ -795,27 +795,17 @@ def _length_segment(part):
     return "".join(out)
 
 
-def _length_covered(rel, limits):
-    """A changed file the length check was asked to read."""
-    for limit in limits:
-        if limit.pattern and _length_pattern_match(rel, limit.pattern):
-            return True
-        if limit.ext_re is not None and limit.ext_re.search(rel):
-            return True
-    return False
-
-
 def _length_files(base, cwd, settings):
-    """Changed files the length check reads.
-
-    The listing takes no pathspec, so an alternation regex still selects its types."""
+    """Changed files the length check reads, before the listing cap."""
     if not settings.file_length.enabled:
         return []
-    return [
-        rel
-        for rel in changed_files(base, cwd, ())
-        if rel.strip() and _length_covered(rel, settings.file_length.limits)
-    ]
+    limits = settings.file_length.limits
+    return changed_files(
+        base,
+        cwd,
+        (),
+        keep=lambda rel: bool(rel.strip()) and _length_limit(rel, limits) is not None,
+    )
 
 
 def _length_limit(rel, limits):
@@ -834,12 +824,9 @@ def _length_limit(rel, limits):
     return None
 
 
-def changed_files(base, cwd, globs):
-    """What the branch touched, including what git does not track yet. A file an
-    agent wrote and has not committed never appears in `git diff`, and it is the
-    likeliest place for a copy of something that already exists: written from
-    scratch by someone who did not find the original. --exclude-standard keeps
-    ignored trees such as node_modules out."""
+def changed_files(base, cwd, globs, keep=None):
+    """What the branch touched, including what git does not track yet. `keep`
+    drops a path before the 200-file cap."""
     listings = (
         ["git", "diff", "--name-only", base, "--", *globs],
         ["git", "ls-files", "--others", "--exclude-standard", "--", *globs],
@@ -848,10 +835,13 @@ def changed_files(base, cwd, globs):
     for cmd in listings:
         for line in run(cmd, cwd=cwd).splitlines():
             rel = line.strip()
-            if rel and rel not in seen:
-                seen.add(rel)
-                out.append(rel)
-    return out[:200]
+            if not rel or rel in seen or (keep is not None and not keep(rel)):
+                continue
+            seen.add(rel)
+            out.append(rel)
+            if len(out) == 200:
+                return out
+    return out
 
 
 def changeset_fingerprint(base, changed, cwd, globs):

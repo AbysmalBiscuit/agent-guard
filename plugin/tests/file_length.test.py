@@ -613,6 +613,29 @@ block_lines = 8
         self.assertNotIn("src-old/a.py", report)
         self.assertEqual(specific["permissionDecision"], "deny")
 
+    def test_a_covered_file_past_the_listing_cap_still_blocks(self):
+        """The length check reads a covered file that sorts after the first
+        200 changed paths. An uncovered file in that prefix does not hide it."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            write_lines(root / "seed.py", 1)
+            commit_all(root, "base")
+            for number in range(201):
+                write_lines(root / f"noise-{number:03d}.txt", 1)
+            write_lines(root / "zzz.py", 9)
+            enable(root, ON)
+
+            result = stop_hook(root)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        specific = json.loads(result.stdout)["hookSpecificOutput"]
+        report = specific["additionalContext"]
+        self.assertIn("  zzz.py  ", report)
+        self.assertIn("9 lines", report)
+        self.assertEqual(specific["permissionDecision"], "deny")
+
 
 if __name__ == "__main__":
     unittest.main()
