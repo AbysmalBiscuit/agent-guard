@@ -66,3 +66,43 @@ steps = [
     { task = "validate-plugin" },
     { task = "validate-marketplace" },
 ]
+
+[people.lev]
+github = "AbysmalBiscuit"
+
+[ticket.fields.github.assignees]
+type = "user"
+list = true
+where = "assignees"
+level = "info"
+
+[ticket.fields.github.blocked_by]
+type = "issue"
+list = true
+where = "blocked_by"
+level = "info"
+
+[ticket.fields.github.labels]
+type = "enum"
+list = true
+where = "labels"
+values = [
+  { name = "accessibility", id = "accessibility" },
+  { name = "bug", id = "bug" },
+  { name = "documentation", id = "documentation" },
+  { name = "duplicate", id = "duplicate" },
+  { name = "enhancement", id = "enhancement" },
+  { name = "good first issue", id = "good first issue" },
+  { name = "help wanted", id = "help wanted" },
+  { name = "invalid", id = "invalid" },
+  { name = "question", id = "question" },
+  { name = "wontfix", id = "wontfix" },
+  { name = "autorelease: pending", id = "autorelease: pending" },
+  { name = "autorelease: tagged", id = "autorelease: tagged" },
+]
+level = "info"
+
+[ticket.fields.github.parent]
+type = "issue"
+where = "parent"
+level = "info"
