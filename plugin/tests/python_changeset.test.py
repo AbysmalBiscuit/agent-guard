@@ -283,7 +283,9 @@ class PythonChangesetTests(unittest.TestCase):
     def test_jscpd_reports_a_typescript_clone_on_an_added_line(self):
         """`\\.tsx?$` reports a clone across `.ts` and `.tsx`, naming both paths.
 
-        A Python clone, a blank file, spaces, and notes.txt stay out.
+        A Python clone, a blank `.ts` file, a `.ts` file of spaces, and
+        notes.txt stay out of the report. The blank file and the spaces file
+        also put `ts` on the changed-file suffix list.
         """
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -302,6 +304,37 @@ class PythonChangesetTests(unittest.TestCase):
             enable(root, JSCPD_TS)
 
             result = stop_hook(root, session="ts-dupes")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+        self.assertIn("src/work.ts:1", report)
+        self.assertIn("src/copy.tsx:1", report)
+        self.assertNotIn(".py", report)
+
+    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    def test_jscpd_reports_a_tsx_copy_of_a_committed_ts_block(self):
+        """`\\.tsx?$` reports a `.tsx` copy of a `.ts` block committed on the
+        base. The added file is the only change. Both paths appear in the
+        report. A Python clone, a blank argument file, a file of spaces, and
+        an untracked notes.txt stay out."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            src = root / "src"
+            src.mkdir()
+            (src / "work.ts").write_text(TS_CLONE, encoding="utf-8")
+            (root / "notes.py").write_text(CLONE, encoding="utf-8")
+            commit_all(root, "base")
+            (src / "copy.tsx").write_text(TS_CLONE, encoding="utf-8")
+            (src / "blank").write_text("", encoding="utf-8")
+            (src / "spaces.txt").write_text("   \n", encoding="utf-8")
+            (root / "notes_copy.py").write_text(CLONE, encoding="utf-8")
+            (root / "notes.txt").write_text("untracked\n", encoding="utf-8")
+            enable(root, JSCPD_TS)
+
+            result = stop_hook(root, session="tsx-of-ts")
 
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
