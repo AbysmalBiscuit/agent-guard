@@ -61,25 +61,28 @@ def find_duplication(changeset, slot):
             continue
         groups.append(group)
     return AnalysisResult(
-        format_fresh_groups(groups, changeset.seen_file, settings, changeset.remember)
+        format_fresh_groups(groups, changeset.seen_file, settings)
     )
 
 
-def format_fresh_groups(groups, seen_file, settings, remember=True):
+def format_fresh_groups(groups, seen_file, settings):
     """The clone-report shape, shared by fallow and the Python analysis.
 
     A fingerprint already written this session stays out, so each clone group
-    is reported once. A hand run sets `remember` false and reports every group."""
-    if not groups or (remember and seen_file is None):
+    is reported once. A hand run has no seen file and reports every group."""
+    if not groups:
         return ""
-    try:
-        seen = set(seen_file.read_text(encoding="utf-8").split()) if remember else set()
-    except OSError:
+    if seen_file is None:
         seen = set()
+    else:
+        try:
+            seen = set(seen_file.read_text(encoding="utf-8").split())
+        except OSError:
+            seen = set()
     fresh = [g for g in groups if g.get("fingerprint") not in seen]
     if not fresh:
         return ""
-    if remember:
+    if seen_file is not None:
         try:
             with seen_file.open("a", encoding="utf-8") as fh:
                 for g in fresh:
@@ -110,14 +113,16 @@ def find_over_extraction(changeset, slot):
     settings = changeset.settings
     cwd = changeset.cwd
     seen_file = changeset.seen_file
-    remember = changeset.remember
     roots = changeset.roots
     if not (settings.test_only or settings.single_caller) or not have("ast-grep"):
         return AnalysisResult()
-    try:
-        seen = set(seen_file.read_text(encoding="utf-8").split()) if remember else set()
-    except OSError:
+    if seen_file is None:
         seen = set()
+    else:
+        try:
+            seen = set(seen_file.read_text(encoding="utf-8").split())
+        except OSError:
+            seen = set()
 
     out = []
     checked = 0
@@ -192,7 +197,7 @@ def find_over_extraction(changeset, slot):
                 )
             else:
                 continue
-            if remember:
+            if seen_file is not None:
                 try:
                     with seen_file.open("a", encoding="utf-8") as fh:
                         fh.write(f"{rel}:{name}\n")
@@ -540,7 +545,7 @@ def python_clone_groups(data, cwd, added):
     return kept
 
 
-def render_clone_groups(groups, seen_file, settings, remember=True):
+def render_clone_groups(groups, seen_file, settings):
     """One block per fresh fingerprint, remembered so a second Stop stays quiet."""
     kept = []
     for group in groups:
@@ -548,7 +553,7 @@ def render_clone_groups(groups, seen_file, settings, remember=True):
         if any(settings.ignore_re.search(i.get("file", "")) for i in instances):
             continue
         kept.append(group)
-    return format_fresh_groups(kept, seen_file, settings, remember)
+    return format_fresh_groups(kept, seen_file, settings)
 
 
 def jscpd_pattern(suffixes):
@@ -648,9 +653,7 @@ def find_jscpd(changeset, slot):
     if not data:
         return AnalysisResult()
     return AnalysisResult(
-        render_clone_groups(
-            python_clone_groups(data, cwd, added), seen_file, settings, changeset.remember
-        )
+        render_clone_groups(python_clone_groups(data, cwd, added), seen_file, settings)
     )
 
 
@@ -1122,7 +1125,6 @@ class Changeset:
         seen_file,
         budget,
         budget_started,
-        remember=True,
     ):
         self.base = base
         self.diff_text = diff_text
@@ -1132,7 +1134,6 @@ class Changeset:
         self.settings = settings
         self.roots = roots
         self.seen_file = seen_file
-        self.remember = remember
         self.session_dir = seen_file.parent if seen_file is not None else None
         self.length_changed = _length_files(changed, settings)
         self.budget_started = budget_started
@@ -1380,7 +1381,6 @@ def audit_changeset(roots, settings, cwd, base):
         None,
         None,
         time.monotonic(),
-        remember=False,
     )
     try:
         return _report(roots, settings, cwd, held)
@@ -1433,7 +1433,7 @@ def _audit(agent_type, roots, settings, cwd, held):
     deadline = held.budget_started + held.budget
     base_copy = held.shared_base(deadline) if wants_base else ""
     violations = run_changeset_checks(held.base, roots, cwd, base_copy)
-    return _finish(agent_type, settings, cwd, held, violations, remember=True)
+    return _finish(agent_type, settings, cwd, held, violations)
 
 
 def _report(roots, settings, cwd, held):
@@ -1442,10 +1442,10 @@ def _report(roots, settings, cwd, held):
     deadline = float("inf")
     base_copy = held.shared_base(deadline) if wants_base else ""
     violations = run_changeset_checks(held.base, roots, cwd, base_copy)
-    return _finish("", settings, cwd, held, violations, remember=False, who="This branch")
+    return _finish("", settings, cwd, held, violations, who="This branch")
 
 
-def _finish(agent_type, settings, cwd, held, violations, remember, who=""):
+def _finish(agent_type, settings, cwd, held, violations, who=""):
     changed = held.changed
     if not changed and not violations:
         clear_python_problem(cwd)
@@ -1463,7 +1463,7 @@ def _finish(agent_type, settings, cwd, held, violations, remember, who=""):
     length_blocks = results["file-length"].blocks if "file-length" in results else False
 
     blocks = 0
-    session_dir = held.session_dir if remember else None
+    session_dir = held.session_dir
     if session_dir is not None:
         blocks_file = session_dir / "blocks"
         blocks = _int(blocks_file.read_text(encoding="utf-8") if blocks_file.is_file() else "0", 0)
