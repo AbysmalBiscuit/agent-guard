@@ -23,6 +23,12 @@ if ! command -v mise >/dev/null 2>&1; then
 	exit 0
 fi
 
+# Nothing to do and nothing to say when every pin is installed. A failed
+# listing falls through to install.sh, which reports the error.
+if missing=$(mise -C "$PLUGIN_ROOT" ls --local --missing 2>/dev/null) && [ -z "$missing" ]; then
+	exit 0
+fi
+
 version=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$MANIFEST" 2>/dev/null | head -1)
 state_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/agent-guard"
 failed="${state_dir}/bootstrap-failed"
