@@ -17,7 +17,7 @@ out of scope.
 import itertools
 import re
 
-from agent_guard.contract import finding_line
+from ..contract import finding_line
 
 RULE = "md-hard-wrap"
 MESSAGE = (

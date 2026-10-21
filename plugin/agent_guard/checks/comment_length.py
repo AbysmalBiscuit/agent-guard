@@ -28,7 +28,7 @@ import re
 import tokenize
 from typing import NamedTuple
 
-from agent_guard.contract import finding_line
+from ..contract import finding_line
 
 # One id per thing measured, and a severity prefix for how far past the line it
 # went. The runner heads each tier separately and spends its budget on the

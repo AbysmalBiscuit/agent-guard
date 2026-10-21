@@ -18,7 +18,7 @@ Not covered: a binary reached through a shell variable or renamed on disk.
 
 import re
 
-from agent_guard.contract import Decision, denied
+from ..contract import Decision, denied
 
 DECRYPT_BINARIES = {
     "age",

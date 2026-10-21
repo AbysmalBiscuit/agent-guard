@@ -16,7 +16,7 @@ import os
 import re
 import shlex
 
-from agent_guard.contract import Decision, denied
+from ..contract import Decision, denied
 
 # Commands that move the shell, PowerShell's spellings of it included.
 CD_NAMES = {"cd", "chdir", "set-location", "sl", "pushd", "push-location"}

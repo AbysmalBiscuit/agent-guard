@@ -12,7 +12,7 @@ the human's to change.
 
 import unicodedata
 
-from agent_guard.contract import SHELL_TOOLS, Decision, advised, asked, denied
+from ..contract import SHELL_TOOLS, Decision, advised, asked, denied
 
 
 class Explain(str):

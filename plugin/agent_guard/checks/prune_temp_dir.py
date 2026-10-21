@@ -20,7 +20,7 @@ import os
 import time
 from pathlib import Path
 
-from agent_guard.contract import Decision
+from ..contract import Decision
 
 STAMP_NAME = ".agent-guard-prune"
 INTERVAL_SECONDS = 24 * 60 * 60

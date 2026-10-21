@@ -16,7 +16,7 @@ inside a quoted string (e.g. a commit message) is ignored.
 import re
 import shlex
 
-from agent_guard.contract import Decision, denied
+from ..contract import Decision, denied
 
 BAD_CLUSTER = re.compile(r"^-[a-zA-Z]*r[a-zA-Z]*$")
 # Pipes, lists, subshells, groups, redirections and process substitutions all

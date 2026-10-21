@@ -27,7 +27,7 @@ import re
 import shlex
 import shutil
 
-from agent_guard.contract import Decision, denied
+from ..contract import Decision, denied
 
 # Pipes, lists, subshells, redirections and process substitutions all start a
 # fresh command position, so `<(fd .)` is read exactly like `| fd .`.
