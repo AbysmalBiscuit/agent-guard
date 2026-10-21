@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${GROK_PLUGIN_ROOT}/scripts/agent_guard.py\" --grok",
+            "command": "python3 \"${GROK_PLUGIN_ROOT}/agent_guard\" --grok",
             "timeout": 8
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${GROK_PLUGIN_ROOT}/scripts/agent_guard.py\" --grok",
+            "command": "python3 \"${GROK_PLUGIN_ROOT}/agent_guard\" --grok",
             "timeout": 10
           }
         ]
@@ -41,7 +41,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${GROK_PLUGIN_ROOT}/scripts/agent_guard.py\" --grok",
+            "command": "python3 \"${GROK_PLUGIN_ROOT}/agent_guard\" --grok",
             "timeout": 60
           }
         ]
@@ -52,7 +52,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${GROK_PLUGIN_ROOT}/scripts/agent_guard.py\" --grok",
+            "command": "python3 \"${GROK_PLUGIN_ROOT}/agent_guard\" --grok",
             "timeout": 60
           }
         ]
@@ -63,7 +63,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${GROK_PLUGIN_ROOT}/scripts/agent_guard.py\" --grok",
+            "command": "python3 \"${GROK_PLUGIN_ROOT}/agent_guard\" --grok",
             "timeout": 3
           }
         ]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cases for the ast-grep severity mapping in scripts/agent_guard.py.
+"""Cases for the ast-grep severity mapping in agent_guard.
 
 A rule declares its tier in its own file, and the runner has to carry that
 declaration into the report. "hint" is what a rule that declares nothing
@@ -9,11 +9,10 @@ reports, so it has to land in the default tier rather than the quietest one.
 import json
 import pathlib
 import shutil
-import subprocess
 import sys
 import tempfile
 
-GUARD = pathlib.Path(__file__).parent.parent / "scripts" / "agent_guard.py"
+from hook_support import run_hook
 
 RULE = """id: {name}
 language: typescript
@@ -49,9 +48,8 @@ def report():
                 "cwd": base,
             }
         )
-        done = subprocess.run(
-            [sys.executable, str(GUARD)],
-            input=payload,
+        done = run_hook(
+            payload,
             capture_output=True,
             text=True,
             timeout=60,

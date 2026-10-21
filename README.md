@@ -2,7 +2,7 @@
 
 A Claude Code, Codex, and Grok Build plugin that checks what a coding agent does against local rules and feeds violations back to the model while it works.
 
-One hook script, `plugin/scripts/agent_guard.py`, handles every hook event:
+One hook package, `plugin/agent_guard`, handles every hook event:
 
 | Event | What runs |
 |---|---|
@@ -86,7 +86,7 @@ touch .agents/plugins/agent-guard/config.toml
 Then check what the hook resolves from inside the tree:
 
 ```sh
-python3 <plugin root>/scripts/agent_guard.py doctor
+python3 <plugin root>/agent_guard doctor
 ```
 
 `<plugin root>` is the installed copy, `~/.claude/plugins/cache/agent-guard/agent-guard/<version>/` for Claude Code or `~/.codex/plugins/cache/agent-guard/agent-guard/<version>/` for Codex. For Grok Build, `grok plugin details agent-guard` prints where it is installed. `doctor` lists the roots it found, the rules and checks each one holds, the effective settings, and which optional tools are on `PATH`.
@@ -166,7 +166,7 @@ timeout = 20
 | `pyscn_extensions` | `\.py$` | file types pyscn reads |
 | `timeout` | `20` | seconds one analysis may run |
 
-complexipy, lizard, vulture, and pyscn run through `uvx` at the versions pinned in `plugin/scripts/agent_guard.py`, or from the tree's own `.venv` when it provides them. jscpd runs through `bunx` at its pinned version. Nothing is installed into the project. A missing runner, a missing tool, or a timeout leaves the audit silent. `doctor` lists which analyses are on, where each setting came from, and that silence.
+complexipy, lizard, vulture, and pyscn run through `uvx` at the versions pinned in `plugin/agent_guard`, or from the tree's own `.venv` when it provides them. jscpd runs through `bunx` at its pinned version. Nothing is installed into the project. A missing runner, a missing tool, or a timeout leaves the audit silent. `doctor` lists which analyses are on, where each setting came from, and that silence.
 
 A clone group is reported when one of its instances sits on a line the branch added, and each fingerprint once per session. A cycle is reported when the base revision did not have it.
 
@@ -208,7 +208,8 @@ plugin/
   hooks/hooks-grok.json           Grok Build hooks
   hooks/bootstrap-tools           SessionStart tool installer
   hooks/run-hook.cmd              cross-platform launcher for bash hooks
-  scripts/                        hook entry point and helpers
+  agent_guard/                    hook package
+  scripts/                        helpers
   tool_checks/ checks/ mandatory/ check scripts
   rules/ queries/ sgconfig.yml    ast-grep rules
   tests/                          test suite

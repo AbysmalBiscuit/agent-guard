@@ -74,6 +74,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "plugin/tests/*" = ["N999", "PLW1510", "S", "SLF001", "UP031"]
+# doctor prints the log level the run settled, which lives on the state module.
+"plugin/agent_guard/doctor.py" = ["SLF001"]
 
 [tool.pyrefly]
 project-includes = ["plugin/**/*.py"]
+search-path = ["plugin", "plugin/tests"]

@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/agent_guard.py\"",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/agent_guard\"",
             "timeout": 8,
             "statusMessage": "Checking tool conventions"
           }
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/agent_guard.py\"",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/agent_guard\"",
             "timeout": 10,
             "statusMessage": "Checking conventions"
           }
@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/agent_guard.py\"",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/agent_guard\"",
             "timeout": 60,
             "statusMessage": "Auditing changeset"
           }
@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/agent_guard.py\"",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/agent_guard\"",
             "timeout": 60,
             "statusMessage": "Auditing changeset"
           }
@@ -67,7 +67,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/agent_guard.py\"",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/agent_guard\"",
             "timeout": 15
           }
         ]

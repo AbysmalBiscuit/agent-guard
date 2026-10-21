@@ -10,15 +10,14 @@ character under test is written as an escape, so this file is ASCII.
 
 import importlib.util
 import json
-import pathlib
 import subprocess
 import sys
 import tempfile
 import unittest
 
-ROOT = pathlib.Path(__file__).parent.parent
-CHECK = ROOT / "tool_checks" / "text_quality.py"
-GUARD = ROOT / "scripts" / "agent_guard.py"
+from hook_support import PLUGIN_ROOT, run_hook
+
+CHECK = PLUGIN_ROOT / "tool_checks" / "text_quality.py"
 
 EM_DASH = "\u2014"
 EN_DASH = "\u2013"
@@ -206,9 +205,8 @@ class ThroughTheHook(unittest.TestCase):
                 "tool_name": tool,
                 "tool_input": tool_input,
             }
-            result = subprocess.run(
-                [sys.executable, str(GUARD)],
-                input=json.dumps(payload),
+            result = run_hook(
+                json.dumps(payload),
                 capture_output=True,
                 text=True,
                 cwd=directory,
@@ -247,9 +245,8 @@ class ThroughTheHook(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {"file_path": "a.md", "content": "x, y\n"},
             }
-            result = subprocess.run(
-                [sys.executable, str(GUARD)],
-                input=json.dumps(payload),
+            result = run_hook(
+                json.dumps(payload),
                 capture_output=True,
                 text=True,
                 cwd=directory,

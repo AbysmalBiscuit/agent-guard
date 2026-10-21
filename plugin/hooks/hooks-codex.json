@@ -19,8 +19,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
-            "commandWindows": "python \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
+            "command": "python3 \"${PLUGIN_ROOT}/agent_guard\" --codex",
+            "commandWindows": "python \"${PLUGIN_ROOT}/agent_guard\" --codex",
             "timeout": 8,
             "statusMessage": "Checking tool conventions"
           }
@@ -33,8 +33,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
-            "commandWindows": "python \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
+            "command": "python3 \"${PLUGIN_ROOT}/agent_guard\" --codex",
+            "commandWindows": "python \"${PLUGIN_ROOT}/agent_guard\" --codex",
             "timeout": 10,
             "statusMessage": "Checking conventions"
           }
@@ -46,8 +46,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
-            "commandWindows": "python \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
+            "command": "python3 \"${PLUGIN_ROOT}/agent_guard\" --codex",
+            "commandWindows": "python \"${PLUGIN_ROOT}/agent_guard\" --codex",
             "timeout": 60,
             "statusMessage": "Auditing changeset"
           }
@@ -59,8 +59,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
-            "commandWindows": "python \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
+            "command": "python3 \"${PLUGIN_ROOT}/agent_guard\" --codex",
+            "commandWindows": "python \"${PLUGIN_ROOT}/agent_guard\" --codex",
             "timeout": 60,
             "statusMessage": "Auditing changeset"
           }
@@ -72,8 +72,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
-            "commandWindows": "python \"${PLUGIN_ROOT}/scripts/agent_guard.py\" --codex",
+            "command": "python3 \"${PLUGIN_ROOT}/agent_guard\" --codex",
+            "commandWindows": "python \"${PLUGIN_ROOT}/agent_guard\" --codex",
             "timeout": 3
           }
         ]
