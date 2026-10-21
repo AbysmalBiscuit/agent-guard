@@ -505,6 +505,17 @@ def jscpd_pattern(selected):
     return "**/*.{" + ",".join(suffixes) + "}"
 
 
+def jscpd_cross_formats(suffixes):
+    """Formats jscpd must compare with each other for this selection.
+
+    `.ts` and `.tsx` are different formats, so a clone across them is invisible
+    unless they share a cross-format group. Same-format clones need no group."""
+    present = {suffix for suffix in suffixes if suffix in {"ts", "tsx", "js", "jsx"}}
+    if len(present) < 2:
+        return ""
+    return "js-ts"
+
+
 def jscpd_suffixes(ext_re):
     """Suffixes the extensions regex writes, so the changeset lists them."""
     written = []
@@ -527,6 +538,8 @@ def find_jscpd(changed, analysis, settings, cwd, base, timeout, seen_file):
     pattern = jscpd_pattern(selected)
     if not pattern:
         return ""
+    suffixes = [Path(rel).suffix.lstrip(".") for rel in selected]
+    cross = jscpd_cross_formats(suffixes)
     try:
         out_dir = Path(tempfile.mkdtemp(prefix="jscpd-", dir=STATE_DIR))
     except OSError:
@@ -549,8 +562,10 @@ def find_jscpd(changed, analysis, settings, cwd, base, timeout, seen_file):
         "--absolute",
         "--silent",
         "--no-gitignore",
-        ".",
     ]
+    if cross:
+        argv.extend(["--cross-formats", cross])
+    argv.append(".")
     # The tree root keeps an unchanged original visible to a clone of a new file.
     run_external("jscpd", argv, timeout, cwd)
     try:

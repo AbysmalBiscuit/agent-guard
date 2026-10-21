@@ -281,10 +281,10 @@ class PythonChangesetTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
     def test_jscpd_reports_a_typescript_clone_on_an_added_line(self):
-        """A Stop audit with jscpd_extensions set to TypeScript reports a
-        duplicated block when one copy sits on a line the branch added. A
-        Python file in the same tree stays out of the report. A blank file, a
-        file of repeated spaces, and an untracked notes.txt stay silent too."""
+        """`\\.tsx?$` reports a clone across `.ts` and `.tsx`, naming both paths.
+
+        A Python clone, a blank file, spaces, and notes.txt stay out.
+        """
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "home").mkdir()
@@ -294,7 +294,7 @@ class PythonChangesetTests(unittest.TestCase):
             (src / "work.ts").write_text(TS_CLONE, encoding="utf-8")
             (root / "notes.py").write_text(CLONE, encoding="utf-8")
             commit_all(root, "base")
-            (src / "copy.ts").write_text(TS_CLONE, encoding="utf-8")
+            (src / "copy.tsx").write_text(TS_CLONE, encoding="utf-8")
             (src / "blank.ts").write_text("", encoding="utf-8")
             (src / "spaces.ts").write_text("   \n", encoding="utf-8")
             (root / "notes_copy.py").write_text(CLONE, encoding="utf-8")
@@ -307,7 +307,7 @@ class PythonChangesetTests(unittest.TestCase):
         report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("duplicated lines across 2 sites (", report)
         self.assertIn("src/work.ts:1", report)
-        self.assertIn("src/copy.ts:1", report)
+        self.assertIn("src/copy.tsx:1", report)
         self.assertNotIn(".py", report)
 
     @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
