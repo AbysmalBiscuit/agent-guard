@@ -20,6 +20,7 @@ TOOL_IDS = {
     "complexipy": "pipx:complexipy",
     "lizard": "pipx:lizard",
     "vulture": "pipx:vulture",
+    "node": "node",
     "jscpd": "npm:jscpd",
     "pyscn": "pipx:pyscn",
 }
