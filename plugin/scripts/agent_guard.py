@@ -704,19 +704,8 @@ def changed_lines(path, base, cwd):
         return None
     if not base:
         return None
-    # git cat-file wants a path inside the tree. Callers pass either form.
-    rel = path
-    prefix = str(cwd) + os.sep
-    if str(path).startswith(prefix):
-        rel = str(path)[len(prefix) :]
-    # A file the base never had is compared with the index. `git diff base`
-    # omits a staged copy, which would report no added lines at all.
-    if succeeds(["git", "cat-file", "-e", f"{base}:{rel}"], cwd=cwd):
-        diff_cmd = ["git", "diff", "--unified=0", base, "--", path]
-    else:
-        diff_cmd = ["git", "diff", "--unified=0", "--cached", "--", path]
     added = set()
-    diff = run(diff_cmd, cwd=cwd)
+    diff = run(["git", "diff", "--unified=0", base, "--", path], cwd=cwd)
     for line in diff.splitlines():
         m = _HUNK.match(line)
         if not m:

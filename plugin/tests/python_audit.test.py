@@ -239,6 +239,41 @@ def tree_config(analysis):
 
 
 class PythonAuditTests(unittest.TestCase):
+    def test_a_new_file_committed_on_the_branch_still_reports(self):
+        """A file the merge-base never had, committed on the branch, is still
+        the changeset. Stop names the offender it added."""
+        with tempfile.TemporaryDirectory() as directory:
+            project = pathlib.Path(directory) / "project"
+            project.mkdir()
+            commit(project, "seed.py", CALM)
+            subprocess.run(["git", "branch", "-M", "main"], cwd=project, check=True)
+            subprocess.run(["git", "checkout", "-q", "-b", "topic"], cwd=project, check=True)
+            commit(project, "added.py", NOISY)
+            subprocess.run(
+                ["git", "update-ref", "refs/remotes/origin/main", "main"],
+                cwd=project,
+                check=True,
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "config",
+                    "--add",
+                    "remote.origin.fetch",
+                    "+refs/heads/*:refs/remotes/origin/*",
+                ],
+                cwd=project,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "branch", "--set-upstream-to=origin/main"],
+                cwd=project,
+                check=True,
+            )
+            out = stop(project, tree_config("vulture"))
+        self.assertIn("added.py", out)
+        self.assertIn("unused_helper", out)
+
     def test_no_python_setting_leaves_a_python_changeset_silent(self):
         """Only the global layer. A Python changeset with an over-threshold
         function and dead code still produces no Stop output."""
