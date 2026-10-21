@@ -1,7 +1,6 @@
 """Inspect what a checkout resolves to."""
 
 import shutil
-import sys
 
 from . import _state
 from .config import PYTHON_ANALYSES, Settings, discover_roots, load_config, sgconfig_for
@@ -106,4 +105,3 @@ def doctor(cwd):
     if len(roots) == 1:
         print("  only the global root listed -> nothing here opted in, so only the")
         print("                      layers named by `always` run")
-    sys.exit(0)

@@ -1,14 +1,13 @@
-"""Harness flags and the log, shared by every cluster.
+"""The log, shared by every cluster.
 
-A flag on argv selects the harness before any payload is read. The log level
-is settled from the environment before a checkout is.
+The log level is settled from the environment before a checkout is. Registering
+the flush and arming the watchdog happen when a process entry asks for them,
+so importing this module starts nothing.
 """
 
-import atexit
 import contextlib
 import json
 import os
-import sys
 import threading
 import tomllib
 from datetime import datetime
@@ -17,8 +16,6 @@ from pathlib import Path
 from .paths import CONFIG_DIR, CONFIG_NAME
 
 _watchdog = None
-CODEX = "--codex" in sys.argv[1:]
-GROK = "--grok" in sys.argv[1:]
 
 
 def _env_setting(key):
@@ -112,11 +109,6 @@ def log(level, event, **fields):
 def write_log(line):
     with contextlib.suppress(BaseException), LOG_PATH.open("a", encoding="utf-8") as handle:
         handle.write(line)
-
-
-# Every exit short of the watchdog's runs this, so a refusal that ends the run
-# before discovery still reaches the log.
-atexit.register(release_log)
 
 
 def arm_watchdog(seconds):
