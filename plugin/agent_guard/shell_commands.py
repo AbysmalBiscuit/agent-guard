@@ -257,7 +257,7 @@ def _commands(tokens, keep_backslashes, depth):
             skip, herestring = False, False
             continue
         if split:
-            # env splits the string into a command and runs it with the words after it, as eval does.
+            # env splits the string into a command and adds the words after it, as eval does.
             words, split = ["eval", token], False
             continue
         if not words:
