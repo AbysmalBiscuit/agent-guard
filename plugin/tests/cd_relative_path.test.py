@@ -24,19 +24,25 @@ from agent_guard.checks import cd_relative_path as check_module
 
 CHECK = pathlib.Path(check_module.__file__)
 SOURCE = CHECK.read_text(encoding="utf-8")
+READER = CHECK.parent.parent / "shell_commands.py"
+READER_SOURCE = READER.read_text(encoding="utf-8")
 
 POSIX_DIR = "/home/lev/Git/lev/devkit"
 MSYS_DIR = "/c/Users/Lev/proj"
 WIN_DIR = "C:\\Users\\Lev\\proj"
 
 
-def load(source=None):
+def load(source=None, reader_source=None):
     """The check as an importable module, optionally from mutated source."""
-    if source is None:
+    if source is None and reader_source is None:
         return check_module
+    if reader_source is not None:
+        reader = types.ModuleType("agent_guard.shell_commands")
+        exec(compile(reader_source, str(READER), "exec"), reader.__dict__)
+        sys.modules["agent_guard.shell_commands"] = reader
     module = types.ModuleType("check_under_test")
     module.__file__ = str(CHECK)
-    exec(compile(source, str(CHECK), "exec"), module.__dict__)
+    exec(compile(source or SOURCE, str(CHECK), "exec"), module.__dict__)
     return module
 
 
@@ -299,60 +305,83 @@ def windows_host(module, report):
         module.os.path = real
 
 
-# Each mutant breaks one decision the check makes. If the suite still passes,
-# that decision is untested and the mutant says so.
+# Each mutant breaks one decision the check or its reader makes. If the suite
+# still passes, that decision is untested and the mutant says so.
 MUTANTS = [
     (
         "quote-blind splitter",
-        "    lexer = shlex.shlex(line, posix=True, punctuation_chars=True)",
-        (
-            '    return [s.split() for s in re.split(r"\\s*(?:\\|\\||&&|\\||;)\\s*", line) '
-            "if s.split()]\n"
-            "    lexer = shlex.shlex(line, posix=True, punctuation_chars=True)"
-        ),
+        "reader",
+        "    tokens = []\n",
+        '    return [t for t in re.split(r"\\s+|(\\||;|&&)", script) if t], True\n',
     ),
-    ("posix backslash escaping", '    lexer.escape = ""', '    lexer.escape = "\\\\"'),
+    (
+        "posix backslash escaping",
+        "reader",
+        '        lexer.escape = ""',
+        '        lexer.escape = "\\\\"',
+    ),
     (
         "newline not a separator",
-        "    for line in script.splitlines():",
-        "    for line in [script]:",
+        "reader",
+        '    lexer.whitespace = " \\t\\r"',
+        '    lexer.whitespace = " \\t\\r\\n"',
     ),
     (
         "posix-only rooting",
+        "check",
         '    return path.startswith(("/", "\\\\")) or bool(WINDOWS_ROOT.match(path))',
         '    return path.startswith("/")',
     ),
     (
         "case-sensitive command names",
+        "reader",
         '    base = re.split(r"[\\\\/]", word)[-1].lower()',
         '    base = re.split(r"[\\\\/]", word)[-1]',
     ),
-    ("named paths dropped", "    operands = named + operands", "    operands = list(operands)"),
-    ("first segment only", "    for tokens in parsed[1:]:", "    for tokens in parsed[1:2]:"),
+    (
+        "named paths dropped",
+        "check",
+        "    operands = named + operands",
+        "    operands = list(operands)",
+    ),
+    (
+        "first segment only",
+        "check",
+        "    for command in parsed[1:]:",
+        "    for command in parsed[1:2]:",
+    ),
     (
         "pattern operand treated as a path",
+        "check",
         "    if name in PATTERN_FIRST and operands:",
         "    if False and operands:",
     ),
-    ("shape hint ignored", "PATH_SHAPE.search(operand) or ", ""),
+    ("shape hint ignored", "check", "PATH_SHAPE.search(operand) or ", ""),
 ]
 
 
 def mutation(report):
     """Every mutant must be caught by the corpus or the properties."""
     survivors = 0
-    for label, original, replacement in MUTANTS:
-        if original not in SOURCE:
+    saved = sys.modules.get("agent_guard.shell_commands")
+    for label, where, original, replacement in MUTANTS:
+        host = READER_SOURCE if where == "reader" else SOURCE
+        if original not in host:
             report(f"STALE MUTANT (anchor gone, rewrite it): {label}")
             survivors += 1
             continue
-        mutated = SOURCE.replace(original, replacement, 1)
+        mutated = host.replace(original, replacement, 1)
         silent = lambda *_: None  # noqa: E731 - a mutant's own failures are the signal
         try:
-            module = load(mutated)
+            module = load(reader_source=mutated) if where == "reader" else load(source=mutated)
             caught = run_corpus(module, silent) or properties(module, silent)
         except Exception:
             caught = True
+        finally:
+            if saved is None:
+                sys.modules.pop("agent_guard.shell_commands", None)
+            else:
+                sys.modules["agent_guard.shell_commands"] = saved
         if not caught:
             report(f"SURVIVED (that decision is untested): {label}")
             survivors += 1
