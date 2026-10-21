@@ -8,11 +8,10 @@ reports, so it has to land in the default tier rather than the quietest one.
 
 import json
 import pathlib
-import shutil
 import sys
 import tempfile
 
-from hook_support import run_hook
+from hook_support import pinned_binary, run_hook
 
 RULE = """id: {name}
 language: typescript
@@ -60,7 +59,7 @@ def report():
         return json.loads(done.stdout)["hookSpecificOutput"]["additionalContext"]
 
 
-HAS_AST_GREP = shutil.which("ast-grep") is not None
+HAS_AST_GREP = pinned_binary("ast-grep") is not None
 OUT = report() if HAS_AST_GREP else ""
 
 
@@ -88,7 +87,7 @@ def test_the_tiers_reach_their_own_headings():
 
 if __name__ == "__main__":
     if not HAS_AST_GREP:
-        print("skip  ast-grep is not installed")
+        print("skip  requires the mise-pinned ast-grep")
         sys.exit(0)
     failures = 0
     for name, case in sorted(globals().items()):

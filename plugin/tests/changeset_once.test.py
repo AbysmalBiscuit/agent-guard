@@ -123,6 +123,7 @@ def diff_against_base(calls):
 
 
 class ChangesetOnceTests(unittest.TestCase):
+    @requires_pinned("jscpd")
     def test_one_stop_diffs_the_base_once_for_many_findings(self):
         """One Stop runs `git diff` against the base once for every finding."""
         with tempfile.TemporaryDirectory() as directory:
@@ -174,6 +175,7 @@ class ChangesetOnceTests(unittest.TestCase):
         against_base = diff_against_base(calls)
         self.assertEqual(len(against_base), 1, calls)
 
+    @requires_pinned("pyscn")
     def test_the_base_revision_is_extracted_once_and_shared(self):
         """Two analyses that need the base revision share one extraction."""
         with tempfile.TemporaryDirectory() as directory:
