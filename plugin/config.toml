@@ -142,8 +142,8 @@ extensions = '\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|pyi|rs|go|sh|bash|sql|toml|ya?
 
 # enabled = false
 
-# warn_message = "split this file by responsibility, and move tests into focused files"
-# block_message = "split this file by responsibility, and move tests into focused files"
+# warn_message = "Split this file by responsibility, and move tests into focused files."
+# block_message = "Split this file by responsibility, and move tests into focused files."
 
 # [[file_length.limits]]
 # extensions = '\.py$'

@@ -206,8 +206,8 @@ PYTHON_DEFAULT_BASELINE = {tool.name: tool.baseline for tool in EXTERNAL_TOOLS}
 
 
 # What the check tells the agent to do. A tree replaces either sentence.
-FILE_LENGTH_WARN = "split this file by responsibility, and move tests into focused files"
-FILE_LENGTH_BLOCK = "split this file by responsibility, and move tests into focused files"
+FILE_LENGTH_WARN = "Split this file by responsibility, and move tests into focused files."
+FILE_LENGTH_BLOCK = "Split this file by responsibility, and move tests into focused files."
 
 
 class FileLengthLimit:

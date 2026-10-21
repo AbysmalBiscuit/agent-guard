@@ -166,13 +166,13 @@ timeout = 20
 | `pyscn_extensions` | `\.py$` | file types pyscn reads |
 | `timeout` | `20` | seconds one analysis may run |
 
-File length lives under `[file_length]`. It is off until a tree sets `enabled`. Each `[[file_length.limits]]` row is one file type, selected by an extension regex, or one path or glob. A path row outranks a type row. A file above `warn` warns. A file above `block_lines` blocks when the global `block` setting is on, and still reports when that setting is off. `accept` records a file at `lines`: the check fails only when that file grows past the recorded size.
+File length lives under `[file_length]`. It is off until a tree sets `enabled`. Each `[[file_length.limits]]` row is one file type, selected by an extension regex, or one path or glob. A path row outranks a type row. A nearer `limits` list replaces a farther one. A file above `warn` warns. A file above `block_lines` blocks when the global `block` setting is on, and still reports when that setting is off. `accept` records a file at `lines`: the check fails only when that file grows past the recorded size.
 
 ```toml
 [file_length]
 enabled = true
-warn_message = "split this file by responsibility, and move tests into focused files"
-block_message = "split this file by responsibility, and move tests into focused files"
+warn_message = "Split this file by responsibility, and move tests into focused files."
+block_message = "Split this file by responsibility, and move tests into focused files."
 
 [[file_length.limits]]
 extensions = '\.py$'
@@ -188,9 +188,9 @@ lines = 4000
 | Setting | Default | Effect |
 |---|---|---|
 | `enabled` | `false` | `true` compares each changed file with its limit |
-| `warn_message` | split this file by responsibility, and move tests into focused files | message for a file above `warn` |
-| `block_message` | split this file by responsibility, and move tests into focused files | message for a file above `block_lines`, and for an accepted file that grew |
-| `limits` | none | rows that name a file type, a path, or a glob |
+| `warn_message` | Split this file by responsibility, and move tests into focused files. | message for a file above `warn` |
+| `block_message` | Split this file by responsibility, and move tests into focused files. | message for a file above `block_lines`, and for an accepted file that grew |
+| `limits` | none | rows that name a file type, a path, or a glob. A nearer list replaces a farther one |
 | `extensions` | unset | extension regex that selects the files a type row covers |
 | `pattern` | unset | path or glob a row covers. A path row outranks a type row |
 | `warn` | unset | line count above which a file warns |
