@@ -58,13 +58,16 @@ class BuiltinChecksAreFunctions(unittest.TestCase):
         self.assertEqual(verdict.permission, "deny")
         self.assertIn("em dash", verdict.context)
 
-    def test_shell_conventions_check_returns_a_denial_for_grep(self):
-        verdict = shell_conventions_check(
-            {"tool_name": "Bash", "tool_input": {"command": "grep -r TODO src"}}
-        )
+    def test_shell_conventions_check_returns_a_denial_for_git_stash(self):
+        # git stash denies with no tool on PATH, so an empty PATH still denies.
+        empty = tempfile.mkdtemp(prefix="agent-guard-empty-path-")
+        with patch.dict(os.environ, {"PATH": empty}):
+            verdict = shell_conventions_check(
+                {"tool_name": "Bash", "tool_input": {"command": "git stash"}}
+            )
 
         self.assertEqual(verdict.permission, "deny")
-        self.assertIn("rg", verdict.context)
+        self.assertIn("git stash", verdict.context)
 
     def test_comment_length_check_returns_a_finding_line(self):
         findings = comment_length_check("# narration\n" * 4 + "value = 1\n", "notes.py")
