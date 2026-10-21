@@ -41,7 +41,7 @@ def load_config(roots):
 
     Unknown keys are ignored. An unparsable file is skipped.
     AGENT_GUARD_<KEY> overrides a file. A [python] table lands on python_<key>.
-    [file_length] stays a table."""
+    [file_length] stays a table, and its scalar keys merge across roots."""
     cfg = {}
     origins = {}
     for root in roots:
@@ -60,7 +60,12 @@ def load_config(roots):
             flat.update({f"python_{k}": v for k, v in python.items() if not isinstance(v, dict)})
         length = data.get("file_length")
         if isinstance(length, dict):
-            flat["file_length"] = length
+            # Scalar keys merge across roots, as [python] does. limits is one
+            # list, so a nearer list replaces the farther one.
+            previous = cfg.get("file_length")
+            merged = dict(previous) if isinstance(previous, dict) else {}
+            merged.update(length)
+            flat["file_length"] = merged
         for key in flat:
             origins[key] = label
         cfg.update(flat)
