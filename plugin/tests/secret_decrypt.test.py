@@ -28,6 +28,12 @@ MUST_BLOCK = [
     "C:\\tools\\age.exe -d f",
     "echo $(age -d f)",
     "find . | xargs -0 age -d",
+    "watch 'true; age -d f'",
+    "watch -n 1 'age -d f'",
+    "eval 'true; age -d f'",
+    "eval age -d f",
+    "ssh host 'x; age -d f'",
+    "su -c 'x; age -d f'",
     # Quoting the reader does not model, and a line it cannot parse, fail closed.
     "echo $'\\''; age -d f",
     "x=`age -d f`",

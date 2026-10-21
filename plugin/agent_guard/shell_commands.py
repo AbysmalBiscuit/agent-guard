@@ -30,7 +30,6 @@ WRAPPERS = {
     "ionice",
     "stdbuf",
     "nohup",
-    "watch",
     "noglob",
     "then",
     "do",
@@ -50,9 +49,13 @@ WRAPPER_OPTS = {
     "nice": {"-n"},
     "ionice": {"-c", "-n"},
     "stdbuf": {"-i", "-o", "-e"},
-    "watch": {"-n"},
 }
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+WATCH_OPTS = {"-n", "--interval"}
+SSH_OPTS = {
+    "-B", "-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L",
+    "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S", "-W", "-w",
+}  # fmt: skip
 # xargs options whose next word is their operand, not the utility.
 XARGS_OPTS = {
     "-a",
@@ -202,22 +205,38 @@ def _commands(tokens, keep_backslashes, depth):
 
 
 def _expand(words, op, stdin, keep_backslashes, depth):
-    """The command, then the commands it runs: a shell's script, xargs' utility.
+    """The command, then the commands it runs.
 
-    A shell runs its `-c` script, or else the here-string it reads.
+    A shell runs its `-c` script, or else the here-string it reads. `su -c`
+    runs its script, and `eval`, `watch` and `ssh HOST` run their operands
+    joined into one script. xargs runs its utility.
     """
     command = Command(command_name(words[0]), tuple(words[1:]), op)
+    args = command.args
     found = [command]
+    script = None
     if command.name in SHELLS:
-        script = _shell_script(command.args)
+        script = _shell_script(args)
         if script is None:
             script = stdin
-        if script is not None:
-            found.extend(read_commands(script, keep_backslashes, depth=depth + 1))
-    elif command.name == "xargs":
-        start = _xargs_utility(command.args)
+    elif command.name == "su":
+        script = _shell_script(args)
+    elif command.name == "eval":
+        script = " ".join(args)
+    elif command.name == "watch":
+        start = _first_operand(args, WATCH_OPTS)
         if start is not None:
-            found.extend(_commands(list(command.args[start:]), keep_backslashes, depth))
+            script = " ".join(args[start:])
+    elif command.name == "ssh":
+        host = _first_operand(args, SSH_OPTS)
+        if host is not None:
+            script = " ".join(args[host + 1 :])
+    elif command.name == "xargs":
+        start = _first_operand(args, XARGS_OPTS)
+        if start is not None:
+            found.extend(_commands(list(args[start:]), keep_backslashes, depth))
+    if script is not None:
+        found.extend(read_commands(script, keep_backslashes, depth=depth + 1))
     return found
 
 
@@ -232,8 +251,8 @@ def _shell_script(args):
     return None
 
 
-def _xargs_utility(args):
-    """The index of the utility xargs runs, or None when it runs the default."""
+def _first_operand(args, opts_with_value):
+    """The index of the first argument that is not an option, or None."""
     index = 0
     while index < len(args):
         arg = args[index]
@@ -242,5 +261,5 @@ def _xargs_utility(args):
             break
         if not arg.startswith("-") or arg == "-":
             break
-        index += 2 if arg in XARGS_OPTS else 1
+        index += 2 if arg in opts_with_value else 1
     return index if index < len(args) else None

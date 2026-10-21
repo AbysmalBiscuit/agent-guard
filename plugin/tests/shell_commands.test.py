@@ -42,6 +42,20 @@ class ReadCommandsTests(unittest.TestCase):
             ],
             "bash <<< 'rg -n foo'": [("bash", ()), ("rg", ("-n", "foo"))],
             "bash script.sh": [("bash", ("script.sh",))],
+            # Commands that run their operands as a script.
+            "su -c 'rg -n foo; ls'": [
+                ("su", ("-c", "rg -n foo; ls")),
+                ("rg", ("-n", "foo")),
+                ("ls", ()),
+            ],
+            "eval rg -n foo": [("eval", ("rg", "-n", "foo")), ("rg", ("-n", "foo"))],
+            "watch -n 1 'rg -n foo'": [("watch", ("-n", "1", "rg -n foo")), ("rg", ("-n", "foo"))],
+            "ssh -p 22 host 'true; rg -n foo'": [
+                ("ssh", ("-p", "22", "host", "true; rg -n foo")),
+                ("true", ()),
+                ("rg", ("-n", "foo")),
+            ],
+            "ssh host": [("ssh", ("host",))],
             "echo $(rg -n foo)": [("echo", ("$",)), ("rg", ("-n", "foo"))],
             # xargs runs its utility.
             "xargs -I {} grep -r foo .": [
