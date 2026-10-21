@@ -63,14 +63,14 @@ Install mise, then install the pins:
 bash plugin/scripts/install.sh
 ```
 
-The script runs `mise install` against `plugin/mise.toml`. A copy already on `PATH` does not win: mise installs the pin anyway. When mise is missing, the script says so and stops.
+The script runs `mise install` for each tool in `plugin/mise.toml`, and for no tool of another mise config, such as the global one. A copy already on `PATH` does not win: mise installs the pin anyway. When mise is missing, the script says so and stops.
 
 At session start, `hooks/bootstrap-tools` runs that script. The session start hook differs from a manual run in two ways:
 
 - It records a failed install in `$XDG_STATE_HOME/agent-guard/bootstrap-failed` and skips retries until the plugin version changes. Delete that file to retry sooner.
 - `AGENT_GUARD_NO_BOOTSTRAP=1` turns it off.
 
-Machine provisioning installs mise, then runs `mise install` in the plugin directory. The Stop audit runs the binary `mise which` names for that config, not the first copy on `PATH`. `doctor` reports each pin, the binary the audit runs, and a missing mise or tool.
+Machine provisioning installs mise, then runs `install.sh`. The Stop audit runs the binary `mise which` names for that config, not the first copy on `PATH`. `doctor` reports each pin, the binary the audit runs, and a missing mise or tool.
 
 ## Turn it on for a project
 

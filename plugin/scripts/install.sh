@@ -21,6 +21,13 @@ if [ ! -f "$MISE_CONFIG" ]; then
 	die "mise config missing: ${MISE_CONFIG}"
 fi
 
+# A bare `mise install` also installs the tools of every other config mise
+# loads, such as the user's global one. Name this config's tools instead.
+mapfile -t tools < <(mise -C "$PLUGIN_ROOT" ls --local | awk '{ print $1 }')
+if [ "${#tools[@]}" -eq 0 ]; then
+	die "mise lists no tools in ${MISE_CONFIG}"
+fi
+
 say "installing tools from ${MISE_CONFIG}"
-mise -C "$PLUGIN_ROOT" install
+mise -C "$PLUGIN_ROOT" install "${tools[@]}"
 say "installed $(mise -C "$PLUGIN_ROOT" which fallow)"
