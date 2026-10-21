@@ -19,6 +19,7 @@ Not covered: a binary reached through a shell variable or renamed on disk.
 import re
 
 from ..contract import Decision, denied
+from ..shell_commands import read_commands
 
 DECRYPT_BINARIES = {
     "age",
@@ -48,25 +49,6 @@ CHEZMOI_BLOCKED = {
     "verify": "decrypts the source state to compare",
 }
 
-RUNNERS = {
-    "bash",
-    "command",
-    "dash",
-    "doas",
-    "env",
-    "exec",
-    "ksh",
-    "nice",
-    "nohup",
-    "sh",
-    "stdbuf",
-    "sudo",
-    "time",
-    "timeout",
-    "xargs",
-    "zsh",
-}
-
 SECRET_PATH = re.compile(
     r"""
       \.config/chezmoi/[^\s]*key[^\s]*\.txt
@@ -78,11 +60,8 @@ SECRET_PATH = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
-SEGMENT = re.compile(r"\|\||&&|[;|&\n]")
+# Every word of the line, redirect targets included, for the identity-file scan.
 TOKEN = re.compile(r"'[^']*'|\"[^\"]*\"|[^\s;|&()<>]+")
-ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-
-MAX_DEPTH = 3
 
 
 def unquote(token):
@@ -91,52 +70,29 @@ def unquote(token):
     return token
 
 
-def normalize(token):
-    """Reduce a token to a bare command name for comparison."""
-    bare = re.split(r"[/\\]", unquote(token))[-1].lower()
-    return bare[:-4] if bare.endswith(".exe") else bare
-
-
-def check_segment(segment, depth):
-    tokens = TOKEN.findall(segment)
-    index = 0
-    while index < len(tokens) and ASSIGNMENT.match(tokens[index]):
-        index += 1
-    if index >= len(tokens):
-        return None
-
-    name = normalize(tokens[index])
-
-    if name in DECRYPT_BINARIES:
-        return f"{name} decrypts secrets"
-
-    if name == "chezmoi":
-        for candidate in tokens[index + 1 :]:
-            bare = unquote(candidate)
-            if bare.startswith("-"):
+def command_violation(command):
+    """Why one command reaches plaintext, or None."""
+    if command.name in DECRYPT_BINARIES:
+        return f"{command.name} decrypts secrets"
+    if command.name == "chezmoi":
+        for arg in command.args:
+            if arg.startswith("-"):
                 continue
-            if bare in CHEZMOI_BLOCKED:
-                return f"chezmoi {bare} {CHEZMOI_BLOCKED[bare]}"
+            if arg in CHEZMOI_BLOCKED:
+                return f"chezmoi {arg} {CHEZMOI_BLOCKED[arg]}"
             break
-        return None
-
-    if name in RUNNERS and depth < MAX_DEPTH:
-        rest = [t for t in tokens[index + 1 :] if not t.startswith("-")]
-        if not rest:
-            return None
-        return find_violation(" ".join(unquote(t) for t in rest), depth + 1)
-
     return None
 
 
-def find_violation(command, depth=0):
+def find_violation(command):
     for token in TOKEN.findall(command):
         bare = unquote(token).replace("\\", "/")
         if SECRET_PATH.search(bare):
             return f"{bare} is an age identity file"
 
-    for segment in SEGMENT.split(command):
-        reason = check_segment(segment, depth)
+    # A backslash stays a path separator, so `C:\tools\age.exe` keeps its name.
+    for item in read_commands(command, keep_backslashes=True):
+        reason = command_violation(item)
         if reason is not None:
             return reason
 
