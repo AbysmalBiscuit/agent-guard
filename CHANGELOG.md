@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.5](https://github.com/AbysmalBiscuit/agent-guard/compare/v0.1.4...v0.1.5) (2026-10-21)
+
+
+### Features
+
+* audit opted-in python changesets ([#11](https://github.com/AbysmalBiscuit/agent-guard/issues/11)) ([909a963](https://github.com/AbysmalBiscuit/agent-guard/commit/909a963301c0705d8335762179684b656b8d0817))
+* audit python changesets for clones and cycles ([#12](https://github.com/AbysmalBiscuit/agent-guard/issues/12)) ([80e9076](https://github.com/AbysmalBiscuit/agent-guard/commit/80e90766f280391f7e5733762269c90b7c612545))
+
 ## [0.1.4](https://github.com/AbysmalBiscuit/agent-guard/compare/v0.1.3...v0.1.4) (2026-10-12)
 
 
