@@ -101,6 +101,8 @@ class AuditCommandTests(unittest.TestCase):
             second = audit(root, (str(root),))
 
         self.assertNotEqual(first.returncode, 0, first.stderr)
+        self.assertIn("This branch introduced", first.stdout)
+        self.assertNotIn("This agent", first.stdout)
         self.assertIn("duplicated lines across 2 sites", first.stdout)
         self.assertIn("pkg/copy.py:1", first.stdout)
         self.assertEqual(second.returncode, first.returncode)
@@ -145,8 +147,9 @@ class AuditCommandTests(unittest.TestCase):
         self.assertEqual(against_tip.stdout, "")
 
     def test_audit_on_a_clean_branch_exits_zero(self):
-        """A clean opted-in branch prints nothing and exits 0. A blank path
-        and a missing path exit non-zero and name the problem."""
+        """A clean opted-in branch prints nothing and exits 0. A blank path,
+        a missing path, and a directory that is not a git checkout exit
+        non-zero and name the problem."""
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "home").mkdir()
@@ -154,10 +157,17 @@ class AuditCommandTests(unittest.TestCase):
             (root / "notes.txt").write_text("seed\n", encoding="utf-8")
             commit_all(root, "base")
             enable(root, "fallow = false\n")
+            empty_bin = root / "empty-bin"
+            empty_bin.mkdir()
 
             clean = audit(root, (str(root),))
             blank = audit(root, ("   ",))
             missing = audit(root, (str(root / "missing"),))
+            no_git = audit(root, (str(root),), extra_env={"PATH": str(empty_bin)})
+
+        with tempfile.TemporaryDirectory() as plain_dir:
+            plain = pathlib.Path(plain_dir)
+            not_git = audit(root, (str(plain),))
 
         self.assertEqual(clean.returncode, 0, clean.stderr)
         self.assertEqual(clean.stdout, "")
@@ -165,6 +175,12 @@ class AuditCommandTests(unittest.TestCase):
         self.assertIn("path", blank.stderr.lower())
         self.assertNotEqual(missing.returncode, 0)
         self.assertIn("path", missing.stderr.lower())
+        self.assertEqual(not_git.returncode, 2, not_git.stderr)
+        self.assertEqual(not_git.stdout, "")
+        self.assertIn(f"agent-guard: not a git checkout: {plain}", not_git.stderr)
+        self.assertEqual(no_git.returncode, 2, no_git.stderr)
+        self.assertEqual(no_git.stdout, "")
+        self.assertIn(f"agent-guard: not a git checkout: {root}", no_git.stderr)
 
     def test_audit_exits_2_when_a_finding_would_block(self):
         """A changeset check finding blocks when the tree sets `block`. The
