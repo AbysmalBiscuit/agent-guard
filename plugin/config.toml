@@ -44,15 +44,13 @@ block = false
 # itself to advisory. There is no built-in loop protection on Stop hooks.
 max_blocks = 2
 
-# mandatory/ beside this file is the tier no setting below reaches. It holds
-# PreToolUse scripts under the same contract as tool_checks/, read from the
-# global install alone and resolved from the hook script's own location, so
+# The built-in mandatory check is the tier no setting below reaches. It is a
+# package function, secret_decrypt, loaded from the installed package, so
 # neither a checkout's config.toml nor AGENT_GUARD_CONFIG_DIR can move or
-# silence it. A script changes tier by changing directory. Put a rule there only
-# when being non-negotiable is the whole point of it: secret decryption is, a
-# style convention is not.
+# silence it. Put a rule there only when being non-negotiable is the whole
+# point of it: secret decryption is, a style convention is not.
 #
-# It runs on shell tools alone, so a script that breaks cannot also block the
+# It runs on shell tools alone, so a check that breaks cannot also block the
 # edit that would fix it. A rule about what a file may contain belongs in
 # tool_checks/, which sees every write.
 
