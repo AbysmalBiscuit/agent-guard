@@ -104,3 +104,29 @@ extensions = '\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|pyi|rs|go|sh|bash|sql|toml|ya?
 # separators, because a hook payload carries whatever form the platform uses.
 # ignore = '\.gen\.|[/\\](generated|__generated__|node_modules)[/\\]|\.d\.ts$'
 # ignore_extra = '[/\\](db-types|api-client)[/\\]'
+
+# A key above this header is ignored.
+# [python]
+
+# complexipy = false
+# complexipy_extensions = '\.py$'
+
+# complexipy_baseline = "complexipy-snapshot.json"
+# complexipy_max = 15
+
+# lizard = false
+# lizard_extensions = '\.(py|ts|tsx)$'
+
+# lizard_baseline = "whitelizard.txt"
+# lizard_ccn = 15
+
+# lizard_length = 1000
+# lizard_arguments = 100
+
+# vulture = false
+# vulture_extensions = '\.py$'
+
+# vulture_baseline = "vulture-whitelist.py"
+# vulture_min_confidence = 60
+
+# timeout = 20
