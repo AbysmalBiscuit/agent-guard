@@ -55,6 +55,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           python-version: ${{ matrix.python }}
+      - uses: oven-sh/setup-bun@v2
       - run: uv sync --locked
       - run: uv run python plugin/tests/run.py
 
