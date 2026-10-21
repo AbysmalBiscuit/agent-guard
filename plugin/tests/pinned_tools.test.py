@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 from hook_support import PLUGIN_ROOT as PLUGIN
-from hook_support import run_hook, stub_mise, tool_version
+from hook_support import TOOL_IDS, run_hook, stub_mise, tool_version
 
 PIN = tool_version("fallow")
 PINNED = f"PINNED-{PIN}"
@@ -181,7 +181,8 @@ class MissingPinTests(unittest.TestCase):
         self.assertEqual(hook.stdout, "")
         self.assertFalse(log.exists())
         self.assertEqual(doctor.returncode, 0, doctor.stderr)
-        self.assertIn(f"fallow     : not installed  pin {PIN}", doctor.stdout)
+        for name in TOOL_IDS:
+            self.assertIn(f"{name:<10} : not installed  pin {tool_version(name)}", doctor.stdout)
         self.assertIn("fallow missing", doctor.stdout)
 
 

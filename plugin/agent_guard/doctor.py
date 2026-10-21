@@ -52,14 +52,11 @@ def doctor(cwd):
     print(f"  {'mise':<10} : {mise or 'not installed'}")
     if mise is None:
         print("  mise missing     -> pinned tools stay silent; install mise, then run install.sh")
-    for tool in ("ast-grep", "fallow", "git", "rg"):
-        if tool in TOOL_IDS:
-            pinned = tool_version(tool)
-            binary = pinned_binary(tool)
-            where = binary or "not installed"
-            print(f"  {tool:<10} : {where}  pin {pinned or 'unset'}")
-        else:
-            print(f"  {tool:<10} : {shutil.which(tool) or 'not installed'}")
+    for tool in TOOL_IDS:
+        where = pinned_binary(tool) or "not installed"
+        print(f"  {tool:<10} : {where}  pin {tool_version(tool) or 'unset'}")
+    for tool in ("git", "rg"):
+        print(f"  {tool:<10} : {shutil.which(tool) or 'not installed'}")
     print()
     print(f"  tool_checks      : {'on' if settings.tool_checks else 'off'}")
     print("  mandatory checks : always on; no config key or root reaches them")

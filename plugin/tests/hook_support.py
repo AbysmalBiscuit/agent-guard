@@ -10,7 +10,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 if str(PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT))
 
-from agent_guard.tools import pinned_binary, tool_version  # noqa: E402, F401
+from agent_guard.tools import TOOL_IDS, pinned_binary, tool_version  # noqa: E402, F401
 
 HOOK = [sys.executable, str(PLUGIN_ROOT / "agent_guard")]
 
