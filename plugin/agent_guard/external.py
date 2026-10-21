@@ -60,10 +60,6 @@ EXTERNAL_TOOLS = (
 _BY_NAME = {tool.name: tool for tool in EXTERNAL_TOOLS}
 
 
-def external_tool(name):
-    return _BY_NAME[name]
-
-
 def _launcher_override(launcher):
     raw = os.environ.get("AGENT_GUARD_LAUNCHERS") or ""
     for item in raw.split(","):
@@ -97,7 +93,7 @@ def tool_argv(name, cwd):
 
     A missing launcher is recorded for doctor. The audit that called this
     stays silent."""
-    tool = external_tool(name)
+    tool = _BY_NAME[name]
     launcher = tool.launcher
     own = _own_venv(tool, cwd)
     if own is not None:
