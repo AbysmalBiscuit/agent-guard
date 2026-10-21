@@ -26,9 +26,8 @@ from .contract import (
 )
 from .process import have, run, run_full
 
-# The bound run_script gave an in-process check. A check that outruns it is
-# silence: a subprocess timeout was silence, and a check the agent cannot wait
-# for should not become a refusal.
+# A check that outruns its bound is silence. The agent cannot wait, and a
+# check the agent cannot wait for should not become a refusal.
 CHECK_TIMEOUT = 5
 
 
