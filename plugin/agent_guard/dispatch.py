@@ -10,7 +10,7 @@ from .config import LAYERS, Settings, discover_roots, load_config
 from .contract import GROK_TOOL_NAMES
 from .doctor import doctor
 from .file_checks import check_file, check_tool, run_mandatory
-from .paths import SELF
+from .paths import SCRIPTS_DIR
 from .process import run
 
 
@@ -57,7 +57,7 @@ def main():
 
     if event == "SessionEnd":
         run(
-            [sys.executable, str(SELF.parent / "fallow_cleanup.py")],
+            [sys.executable, str(SCRIPTS_DIR / "fallow_cleanup.py")],
             stdin=json.dumps({**payload, "hook_event_name": event}),
             cwd=cwd,
             timeout=12,

@@ -9,10 +9,8 @@ import os
 import re
 from pathlib import Path
 
-# The plugin root is this package's parent. SELF keeps the script path the
-# cleanup helper was launched from, so a relocated install still finds it.
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent
-SELF = _PLUGIN_ROOT / "scripts" / "agent_guard.py"
+SCRIPTS_DIR = _PLUGIN_ROOT / "scripts"
 CONFIG_DIR = Path(os.environ.get("AGENT_GUARD_CONFIG_DIR") or _PLUGIN_ROOT)
 STATE_DIR = (
     Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "agent-guard"
