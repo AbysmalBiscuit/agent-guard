@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from .config import JSCPD_MAX_SIZE, JSCPD_MIN_LINES, JSCPD_MIN_TOKENS, _int
-from .contract import SILENT, advised, changed_lines, denied, git_base
+from .contract import SILENT, advised, denied, git_base
 from .external import EXTERNAL_TOOLS, run_external, tool_argv
 from .file_checks import run_changeset_checks
 from .paths import BARREL_OR_TEST, STATE_DIR, TEST_PATH
@@ -27,13 +27,15 @@ from .process import (
 )
 
 
-def find_duplication(base, seen_file, settings, cwd):
+def find_duplication(changeset):
     """Duplication introduced by the changeset. Generated code is excluded: it is
     duplicated by design, and flagging it teaches agents to ignore the hook."""
+    settings = changeset.settings
+    cwd = changeset.cwd
     if not settings.use_fallow or not have("fallow"):
         return ""
     raw = run(
-        ["fallow", "audit", "--base", base, "--format", "json"],
+        ["fallow", "audit", "--base", changeset.base, "--format", "json"],
         timeout=settings.fallow_timeout,
         cwd=cwd,
     )
@@ -52,7 +54,7 @@ def find_duplication(base, seen_file, settings, cwd):
         if any(settings.ignore_re.search(i.get("file", "")) for i in instances):
             continue
         groups.append(group)
-    return format_fresh_groups(groups, seen_file, settings)
+    return format_fresh_groups(groups, changeset.seen_file, settings)
 
 
 def format_fresh_groups(groups, seen_file, settings):
@@ -89,12 +91,16 @@ def format_fresh_groups(groups, seen_file, settings):
     return "\n".join(lines)
 
 
-def find_over_extraction(changed, seen_file, roots, settings, cwd):
+def find_over_extraction(changeset):
     """Helpers extracted past the point of usefulness. Two shapes are reported,
     each behind its own switch: an export whose only consumer is its own test,
     and an export with exactly one real caller. Barrel re-exports do not count as
     consumers. Reference counting is name-based, so it is a heuristic, which is
     why this stays advisory: a same-named symbol elsewhere reads as a consumer."""
+    settings = changeset.settings
+    cwd = changeset.cwd
+    seen_file = changeset.seen_file
+    roots = changeset.roots
     if not (settings.test_only or settings.single_caller) or not have("ast-grep"):
         return ""
     try:
@@ -104,7 +110,7 @@ def find_over_extraction(changed, seen_file, roots, settings, cwd):
 
     out = []
     checked = 0
-    for rel in changed:
+    for rel in changeset.changed:
         if checked >= settings.max_symbols:
             break
         path = cwd / rel
@@ -184,8 +190,7 @@ def find_over_extraction(changed, seen_file, roots, settings, cwd):
     return "\n".join(out)
 
 
-SOURCE_GLOBS = ("*.ts", "*.tsx", "*.js", "*.jsx")
-PYTHON_GLOBS = ("*.py", "*.pyi")
+_SOURCE_RE = re.compile(r"\.(ts|tsx|js|jsx)$")
 
 _VULTURE_HIT = re.compile(
     r"^(.*?):(\d+): unused (\w+) '([^']+)' \((\d+)% confidence\)", re.MULTILINE
@@ -226,6 +231,35 @@ def _python_spans(cwd, rel):
     return spans
 
 
+_HUNK = re.compile(r"^@@ \S+ \+(\d+)(?:,(\d+))?")
+
+
+def _added_lines(diff_text):
+    """Line numbers one file's patch added. None means the file is untracked.
+
+    A context line in the hunk is not an added line. Counting the hunk range
+    would treat the line above an insertion as the branch's."""
+    if diff_text is None:
+        return None
+    added = set()
+    new_line = None
+    for line in diff_text.splitlines():
+        match = _HUNK.match(line)
+        if match:
+            new_line = int(match.group(1))
+            continue
+        if new_line is None or line.startswith("\\"):
+            continue
+        if line.startswith("+"):
+            added.add(new_line)
+            new_line += 1
+        elif line.startswith("-"):
+            continue
+        else:
+            new_line += 1
+    return added
+
+
 def _touched(span, added):
     """A function the changeset touched overlaps a line the branch added."""
     if added is None:
@@ -263,9 +297,13 @@ def _selected(changed, analysis, settings, cwd):
     return selected
 
 
-def find_complexipy(changed, analysis, settings, cwd, base, timeout, _seen_file):
+def find_complexipy(changeset):
     """Cognitive complexity the changeset introduced, above the tree's threshold."""
-    files = _selected(changed, analysis, settings, cwd)
+    analysis = changeset.analysis
+    settings = changeset.settings
+    cwd = changeset.cwd
+    timeout = changeset.slot
+    files = _selected(changeset.changed, analysis, settings, cwd)
     if not files:
         return ""
     cmd = tool_argv("complexipy", cwd)
@@ -318,7 +356,7 @@ def find_complexipy(changed, analysis, settings, cwd, base, timeout, _seen_file)
         if _baselined_complexipy(cwd, analysis, rel, name):
             continue
         span = _python_spans(cwd, rel).get(name)
-        added = changed_lines(str(cwd / rel), base, cwd)
+        added = _added_lines(changeset.diff_for(rel))
         if span is None or not _touched(span, added):
             continue
         lines.append(
@@ -328,9 +366,13 @@ def find_complexipy(changed, analysis, settings, cwd, base, timeout, _seen_file)
     return "\n".join(lines[: settings.max_findings])
 
 
-def find_lizard(changed, analysis, settings, cwd, base, timeout, _seen_file):
+def find_lizard(changeset):
     """Cyclomatic complexity, length, or parameter count the changeset introduced."""
-    files = _selected(changed, analysis, settings, cwd)
+    analysis = changeset.analysis
+    settings = changeset.settings
+    cwd = changeset.cwd
+    timeout = changeset.slot
+    files = _selected(changeset.changed, analysis, settings, cwd)
     if not files:
         return ""
     cmd = tool_argv("lizard", cwd)
@@ -373,7 +415,7 @@ def find_lizard(changed, analysis, settings, cwd, base, timeout, _seen_file):
         # lizard prints the function's start line and its length. The span is
         # those lines; a name lookup would collide on same-named methods.
         span = (start, start + length)
-        added = changed_lines(str(cwd / rel), base, cwd)
+        added = _added_lines(changeset.diff_for(rel))
         if not _touched(span, added):
             continue
         reasons = []
@@ -389,9 +431,13 @@ def find_lizard(changed, analysis, settings, cwd, base, timeout, _seen_file):
     return "\n".join(lines[: settings.max_findings])
 
 
-def find_vulture(changed, analysis, settings, cwd, base, timeout, _seen_file):
+def find_vulture(changeset):
     """Dead code on a line the branch added."""
-    files = _selected(changed, analysis, settings, cwd)
+    analysis = changeset.analysis
+    settings = changeset.settings
+    cwd = changeset.cwd
+    timeout = changeset.slot
+    files = _selected(changeset.changed, analysis, settings, cwd)
     if not files:
         return ""
     cmd = tool_argv("vulture", cwd)
@@ -416,7 +462,7 @@ def find_vulture(changed, analysis, settings, cwd, base, timeout, _seen_file):
         confidence = int(match.group(5))
         if rel not in files:
             continue
-        added = changed_lines(str(cwd / rel), base, cwd)
+        added = _added_lines(changeset.diff_for(rel))
         if added is not None and number not in added:
             continue
         hits.append((rank.get(kind, 4), -confidence, number, rel, name))
@@ -514,15 +560,6 @@ def jscpd_cross_formats(suffixes):
     return "js-ts"
 
 
-def jscpd_suffixes(ext_re):
-    """Suffixes the extensions regex writes, so the changeset lists them."""
-    written = []
-    for bare, grouped in re.findall(r"\\\.(?:([A-Za-z0-9]+)|(\([^)]*\)))", ext_re.pattern):
-        pieces = [bare] if bare else grouped[1:-1].split("|")
-        written.extend(piece for piece in pieces if piece.isascii() and piece.isalnum())
-    return list(dict.fromkeys(written))
-
-
 def jscpd_scan_files(changed, ext_re, cwd):
     """Worktree paths the extension regex selects, including unchanged files."""
     paths = set(changed)
@@ -539,16 +576,22 @@ def jscpd_scan_suffixes(paths):
     return [suffix for suffix in suffixes if suffix.isascii() and suffix.isalnum()]
 
 
-def find_jscpd(changed, analysis, settings, cwd, base, timeout, seen_file):
+def find_jscpd(changeset):
     """Clone groups among the file types this analysis reads, when one
     instance sits on an added line."""
+    analysis = changeset.analysis
+    settings = changeset.settings
+    cwd = changeset.cwd
+    timeout = changeset.slot
+    seen_file = changeset.seen_file
+    changed = changeset.changed
     selected = [rel for rel in changed if analysis.ext_re.search(rel)]
     if not selected:
         return ""
     cmd = tool_argv("jscpd", cwd)
     if cmd is None:
         return ""
-    added = {rel: changed_lines(str(cwd / rel), base, cwd) for rel in selected}
+    added = {rel: _added_lines(changeset.diff_for(rel)) for rel in selected}
     suffixes = jscpd_scan_suffixes(jscpd_scan_files(changed, analysis.ext_re, cwd))
     pattern = jscpd_pattern(suffixes)
     if not pattern:
@@ -671,8 +714,12 @@ def _extract_base(base, cwd, dest, deadline):
     return True
 
 
-def find_pyscn(changed, analysis, settings, cwd, base, timeout, _seen_file):
+def find_pyscn(changeset):
     """Import cycles the working tree has and the base revision did not."""
+    analysis = changeset.analysis
+    cwd = changeset.cwd
+    timeout = changeset.slot
+    changed = changeset.changed
     if not any(analysis.ext_re.search(rel) for rel in changed):
         return ""
     cmd = tool_argv("pyscn", cwd)
@@ -704,7 +751,8 @@ def find_pyscn(changed, analysis, settings, cwd, base, timeout, _seen_file):
     deadline = time.monotonic() + left
     try:
         dest.mkdir()
-        if not _extract_base(base, cwd, dest, deadline):
+        source = changeset.shared_base(deadline)
+        if not source or not _extract_base_from(source, dest):
             record_python_problem(
                 "pyscn: the base revision copy did not finish, so the analysis stayed silent",
                 cwd,
@@ -725,58 +773,115 @@ def find_pyscn(changed, analysis, settings, cwd, base, timeout, _seen_file):
     if not fresh:
         return ""
     lines = ["  import cycles the base revision did not have:"]
-    lines.extend(f"    {key}" for key in fresh[: settings.max_findings])
+    lines.extend(f"    {key}" for key in fresh[: changeset.settings.max_findings])
     return "\n".join(lines)
 
 
-def find_python(changed, settings, cwd, base, budget, seen_file=None):
-    """Findings from the analyses this tree turned on.
+def find_file_length_analysis(changeset):
+    """Changed files past a warn or block limit, from the shared file list."""
+    text, blocks = find_file_length(changeset.length_changed, changeset.settings, changeset.cwd)
+    changeset.length_blocks = blocks
+    return text
 
-    `budget` is seconds left under the Stop hook's own deadline. Each tool gets
-    only what remains, and a tool with none left is skipped and recorded."""
-    readers = {
-        "complexipy": find_complexipy,
-        "lizard": find_lizard,
-        "vulture": find_vulture,
-        "jscpd": find_jscpd,
-        "pyscn": find_pyscn,
-    }
-    missing = [tool.name for tool in EXTERNAL_TOOLS if tool.name not in readers]
-    if missing:
-        raise RuntimeError(f"no reader for {', '.join(missing)}")
-    clear_python_problem(cwd)
-    sections = []
-    started = time.monotonic()
-    for tool in EXTERNAL_TOOLS:
-        name = tool.name
-        analysis = settings.python[name]
-        if not analysis.enabled:
+
+# One signature. A new analysis is another row, not another call shape.
+ANALYSES = (
+    ("duplication", find_duplication),
+    ("over-extraction", find_over_extraction),
+    ("complexipy", find_complexipy),
+    ("lizard", find_lizard),
+    ("vulture", find_vulture),
+    ("jscpd", find_jscpd),
+    ("pyscn", find_pyscn),
+    ("file-length", find_file_length_analysis),
+)
+
+_PYTHON = frozenset(tool.name for tool in EXTERNAL_TOOLS)
+
+
+def run_analyses(changeset):
+    """Every analysis, each given the same changeset. A tool with no time left
+    is recorded and skipped. The changeset owns that record."""
+    findings = {}
+    for name, analyze in ANALYSES:
+        if name in _PYTHON:
+            analysis = changeset.settings.python[name]
+            if not analysis.enabled:
+                continue
+            left = changeset.budget - (time.monotonic() - changeset.budget_started)
+            if left <= 0:
+                record_python_problem(
+                    f"{name}: no time left under the hook deadline, so the analysis stayed silent",
+                    changeset.cwd,
+                )
+                continue
+            changeset.analysis = analysis
+            changeset.slot = min(analysis.timeout, left)
+        elif name == "file-length" and not changeset.length_changed:
             continue
-        left = budget - (time.monotonic() - started)
-        if left <= 0:
-            record_python_problem(
-                f"{name}: no time left under the hook deadline, so the analysis stayed silent",
-                cwd,
-            )
-            continue
-        slot = min(analysis.timeout, left)
-        text = readers[name](changed, analysis, settings, cwd, base, slot, seen_file)
+        text = analyze(changeset)
         if text:
-            sections.append(text)
-    return "\n".join(sections)
+            findings[name] = text
+    return findings
 
 
-def source_globs(settings):
-    """File types the changeset listing reads. Python globs join only when a
-    tree turned a Python analysis on, so an opted-out tree keeps its old list.
-    jscpd also reads the suffixes its extensions regex matches."""
-    globs = list(SOURCE_GLOBS)
-    if any(analysis.enabled for analysis in settings.python.values()):
-        globs.extend(PYTHON_GLOBS)
-    jscpd = settings.python["jscpd"]
-    if jscpd.enabled:
-        globs.extend(f"*.{suffix}" for suffix in jscpd_suffixes(jscpd.ext_re))
-    return tuple(dict.fromkeys(globs))
+def render_findings(who, findings, violations):
+    """One report from every analysis's text. The wording is the contract the
+    existing Stop tests read."""
+    sections = []
+    if violations:
+        sections.append(violations)
+    dupes = findings.get("duplication")
+    if dupes:
+        sections.append(
+            f"{who} introduced duplicated code rather than reusing what already "
+            f"exists:\n\n{dupes}\n\nConsolidate against the existing "
+            "implementation, or explain why a separate one is warranted. Run "
+            "'fallow dupes --trace <fingerprint>' for the full clone group.\n"
+        )
+    extraction = findings.get("over-extraction")
+    if extraction:
+        sections.append(
+            f"{who} added helpers that carry their own abstraction cost without "
+            f"earning it:\n\n{extraction}\nAn indirection worth keeping has more "
+            "than one caller, or a name that explains something the inlined code "
+            "would not."
+        )
+    python = "\n".join(
+        findings[name] for name, _analyze in ANALYSES if name in _PYTHON and findings.get(name)
+    )
+    if python:
+        sections.append(
+            f"{who} introduced findings the tree asked this audit to report:\n\n{python}\n"
+        )
+    length_text = findings.get("file-length")
+    if length_text:
+        sections.append(
+            f"{who} changed files past a length limit this tree set:\n\n{length_text}\n"
+        )
+    return sections
+
+
+def _watched_diff(diff_text, watched):
+    """The one patch, reduced to the files the skip watches."""
+    if not watched:
+        return ""
+    keep = set(watched)
+    parts = []
+    for rel, text in _split_diff(diff_text).items():
+        if rel in keep:
+            parts.append(text)
+    return "".join(parts)
+
+
+def _fingerprint_files(changed, settings):
+    """Files a repeat Stop compares. With the length check off, a non-source
+    edit is not a change the skip watches."""
+    if settings.file_length.enabled:
+        return changed
+    patterns = [_SOURCE_RE]
+    patterns.extend(analysis.ext_re for analysis in settings.python.values() if analysis.enabled)
+    return [rel for rel in changed if any(pattern.search(rel) for pattern in patterns)]
 
 
 def _line_count(path):
@@ -855,17 +960,16 @@ def _length_segment(part):
     return "".join(out)
 
 
-def _length_files(base, cwd, settings):
-    """Changed files the length check reads, before the listing cap."""
+def _length_files(changed, settings):
+    """Changed files the length check reads, from the one changed-file list.
+
+    The 200-file cap applies after the length filter, so a covered file that
+    sorts after 200 uncovered paths still reaches the check."""
     if not settings.file_length.enabled:
         return []
     limits = settings.file_length.limits
-    return changed_files(
-        base,
-        cwd,
-        (),
-        keep=lambda rel: bool(rel.strip()) and _length_limit(rel, limits) is not None,
-    )
+    selected = [rel for rel in changed if rel.strip() and _length_limit(rel, limits) is not None]
+    return selected[:200]
 
 
 def _usable_limits(limits):
@@ -894,38 +998,144 @@ def _length_limit(rel, limits):
     return None
 
 
-def changed_files(base, cwd, globs, keep=None):
-    """What the branch touched, including what git does not track yet. A file an
-    agent wrote and has not committed never appears in `git diff`, and it is the
-    likeliest place for a copy of something that already exists: written from
-    scratch by someone who did not find the original. --exclude-standard keeps
-    ignored trees such as node_modules out. `keep` drops a path before the
-    200-file cap."""
-    listings = (
-        ["git", "diff", "--name-only", base, "--", *globs],
-        ["git", "ls-files", "--others", "--exclude-standard", "--", *globs],
-    )
-    out, seen = [], set()
-    for cmd in listings:
-        for line in run(cmd, cwd=cwd).splitlines():
-            rel = line.strip()
-            if not rel or rel in seen or (keep is not None and not keep(rel)):
-                continue
+class Changeset:
+    """One Stop's diff, file list, and base copy, shared by every analysis.
+
+    `diff_text` is the one `git diff` against the base. `base_copy` is filled
+    the first time an analysis asks for the base revision."""
+
+    def __init__(self, base, diff_text, changed, cwd, settings, roots, seen_file):
+        self.base = base
+        self.diff_text = diff_text
+        self.changed = changed
+        self.cwd = cwd
+        self.settings = settings
+        self.roots = roots
+        self.seen_file = seen_file
+        self.length_changed = []
+        self.length_blocks = False
+        self.analysis = None
+        self.slot = None
+        self.budget_started = None
+        self.budget = None
+        self._files = {}
+        self._base_copy = None
+        self._base_miss = False
+        for rel, text in _split_diff(diff_text).items():
+            self._files[rel] = text
+
+    def diff_for(self, rel):
+        """This file's patch. None means the file is untracked."""
+        if rel in self._files:
+            return self._files[rel]
+        if rel in self.changed and not succeeds(
+            ["git", "ls-files", "--error-unmatch", "--", rel], cwd=self.cwd
+        ):
+            return None
+        return ""
+
+    def shared_base(self, deadline):
+        """Directory of the one base extraction, or "" when it did not finish."""
+        if self._base_miss:
+            return ""
+        if self._base_copy is None:
+            STATE_DIR.mkdir(parents=True, exist_ok=True)
+            self._base_copy = Path(tempfile.mkdtemp(prefix="changeset-base-", dir=STATE_DIR))
+            if not _extract_base(self.base, self.cwd, self._base_copy, deadline):
+                self._base_miss = True
+                shutil.rmtree(self._base_copy, ignore_errors=True)
+                self._base_copy = None
+                return ""
+        return str(self._base_copy)
+
+    def close(self):
+        if self._base_copy is not None:
+            shutil.rmtree(self._base_copy, ignore_errors=True)
+            self._base_copy = None
+
+
+def _split_diff(diff_text):
+    """One patch body per path in a combined `git diff`."""
+    files = {}
+    current = None
+    body = []
+
+    def finish():
+        if current is not None:
+            files[current] = "\n".join(body) + ("\n" if body else "")
+
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git "):
+            finish()
+            body = [line]
+            current = None
+            parts = line.split(" ")
+            if len(parts) >= 4 and parts[-1].startswith("b/"):
+                current = parts[-1][2:]
+            continue
+        if current is None:
+            continue
+        body.append(line)
+    finish()
+    return files
+
+
+def _extract_base_from(source, dest):
+    """Copy the shared base extraction into the directory an analysis scans."""
+    try:
+        for path in Path(source).rglob("*"):
+            rel = path.relative_to(source)
+            target = Path(dest) / rel
+            if path.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            elif path.is_file():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, target)
+    except OSError:
+        return False
+    return True
+
+
+def read_changeset(base, cwd):
+    """The diff once, plus untracked names. A new file is absent from the diff."""
+    diff_text = run(["git", "diff", base], cwd=cwd)
+    changed = _names_from_diff(diff_text)
+    seen = set(changed)
+    for line in run(["git", "ls-files", "--others", "--exclude-standard"], cwd=cwd).splitlines():
+        rel = line.strip()
+        if rel and rel not in seen:
             seen.add(rel)
-            out.append(rel)
-            if len(out) == 200:
-                return out
-    return out
+            changed.append(rel)
+    return diff_text, changed
 
 
-def changeset_fingerprint(base, changed, cwd, globs):
+def _names_from_diff(diff_text):
+    """Paths the one patch touches, including deletions."""
+    names = []
+    seen = set()
+    for line in diff_text.splitlines():
+        if not line.startswith("diff --git "):
+            continue
+        parts = line.split(" ")
+        if len(parts) < 4 or not parts[-1].startswith("b/"):
+            continue
+        rel = parts[-1][2:]
+        if not rel or rel in seen:
+            continue
+        seen.add(rel)
+        names.append(rel)
+    return names
+
+
+def changeset_fingerprint(diff_text, changed, cwd):
     """Everything a report would be derived from, hashed. The diff alone cannot
     stand in for it: an untracked file's content is absent from the diff, so a
     second new file after a first report would read as no change at all and the
     report would be skipped. The diff still goes in, because a deletion moves it
     while leaving nothing on disk to read."""
     digest = hashlib.sha256()
-    digest.update(run(["git", "diff", base, "--", *globs], cwd=cwd).encode("utf-8", "replace"))
+    digest.update(diff_text.encode("utf-8", "replace"))
+    digest.update("\0".join(changed).encode("utf-8", "replace"))
     for rel in changed:
         digest.update(rel.encode("utf-8", "replace"))
         path = cwd / rel
@@ -943,14 +1153,16 @@ def check_changeset(session, agent_type, roots, settings, cwd):
         return SILENT
 
     base = git_base(settings, cwd)
-    globs = source_globs(settings)
-    changed = changed_files(base, cwd, globs)
-    length_changed = _length_files(base, cwd, settings)
-    changed = list(dict.fromkeys([*changed, *length_changed]))
+    diff_text, changed = read_changeset(base, cwd)
     # Before the source-glob gate: the duplication audit reads TS and JS, but a
     # changeset-check speaks for whatever files its own rule covers, and a
     # branch that touched only markdown or shell still has to answer for them.
-    violations = run_changeset_checks(base, roots, cwd)
+    wants_base = settings.python["pyscn"].enabled or any(
+        (root / "changeset_checks").is_dir() for root in roots
+    )
+    held = Changeset(base, diff_text, changed, cwd, settings, roots, None)
+    base_copy = held.shared_base(time.monotonic() + 20) if wants_base else ""
+    violations = run_changeset_checks(base, roots, cwd, base_copy)
     if not changed and not violations:
         # Nothing for the tools to read. Drop a note from an earlier Stop.
         clear_python_problem(cwd)
@@ -970,7 +1182,11 @@ def check_changeset(session, agent_type, roots, settings, cwd):
     # Python tools run after this skip: a repeat of the same diff must not pay
     # for them again.
     fingerprint = (
-        changeset_fingerprint(base, changed, cwd, globs)
+        changeset_fingerprint(
+            _watched_diff(diff_text, _fingerprint_files(changed, settings)),
+            _fingerprint_files(changed, settings),
+            cwd,
+        )
         + hashlib.sha1(violations.encode("utf-8", "replace"), usedforsecurity=False).hexdigest()
     )
     last = sdir / "last-diff"
@@ -981,42 +1197,25 @@ def check_changeset(session, agent_type, roots, settings, cwd):
     except OSError:
         pass
 
+    changeset = held
+    changeset.seen_file = seen_file
+    changeset.length_changed = _length_files(changed, settings)
     who = f"Subagent '{agent_type}'" if agent_type else "This agent"
     # fallow and the Python tools share one deadline under the hook's 60s.
     # Each Python tool gets only the time still left.
-    audit_deadline = time.monotonic() + 55
-    dupes = find_duplication(base, seen_file, settings, cwd)
-    extraction = find_over_extraction(changed, seen_file, roots, settings, cwd)
-    sections = []
-    if violations:
-        sections.append(violations)
-    if dupes:
-        sections.append(
-            f"{who} introduced duplicated code rather than reusing what already "
-            f"exists:\n\n{dupes}\n\nConsolidate against the existing "
-            "implementation, or explain why a separate one is warranted. Run "
-            "'fallow dupes --trace <fingerprint>' for the full clone group.\n"
-        )
-    if extraction:
-        sections.append(
-            f"{who} added helpers that carry their own abstraction cost without "
-            f"earning it:\n\n{extraction}\nAn indirection worth keeping has more "
-            "than one caller, or a name that explains something the inlined code "
-            "would not."
-        )
-    python = find_python(changed, settings, cwd, base, audit_deadline - time.monotonic(), seen_file)
-    if python:
-        sections.append(
-            f"{who} introduced findings the tree asked this audit to report:\n\n{python}\n"
-        )
-    length_text, length_blocks = find_file_length(length_changed, settings, cwd)
-    if length_text:
-        sections.append(
-            f"{who} changed files past a length limit this tree set:\n\n{length_text}\n"
-        )
+    changeset.budget = 55
+    changeset.budget_started = time.monotonic()
+    clear_python_problem(cwd)
+    try:
+        findings = run_analyses(changeset)
+    finally:
+        changeset.close()
+    sections = render_findings(who, findings, violations)
     if not sections:
         return SILENT
     context = "\n".join(sections)
+    dupes = findings.get("duplication") or ""
+    length_blocks = changeset.length_blocks
 
     blocks_file = sdir / "blocks"
     blocks = _int(blocks_file.read_text(encoding="utf-8") if blocks_file.is_file() else "0", 0)

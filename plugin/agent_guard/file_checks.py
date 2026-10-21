@@ -105,7 +105,7 @@ def run_checks(path, roots, cwd):
     return "\n".join(out)
 
 
-def run_changeset_checks(base, roots, cwd):
+def run_changeset_checks(base, roots, cwd, base_copy=""):
     """Conventions only a diff can show. A root's changeset_checks/ holds Python
     scripts, each given the base revision as its argument and printing a finished
     section on stdout when it has something to say; silence means nothing found.
@@ -121,7 +121,9 @@ def run_changeset_checks(base, roots, cwd):
         if not directory.is_dir():
             continue
         for script in sorted(directory.glob("*.py")):
-            text = run([sys.executable, str(script), base], timeout=20, cwd=cwd).strip()
+            text = run(
+                [sys.executable, str(script), base, str(base_copy)], timeout=20, cwd=cwd
+            ).strip()
             if text:
                 out.append(text)
     return "\n\n".join(out)
