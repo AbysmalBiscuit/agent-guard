@@ -25,7 +25,7 @@ from .contract import (
     git_base,
 )
 from .paths import _PLUGIN_ROOT, CONFIG_DIR
-from .process import have, run, run_full
+from .process import run, run_full
 from .tools import pinned_binary
 
 # A check that outruns its bound is silence. A file check reads a whole file,
@@ -308,7 +308,8 @@ _SG_SEVERITY = {"error": "error:", "warning": "warn:", "info": "info:", "hint": 
 
 def scan_file(path, roots, cwd, layers):
     findings = []
-    if "rules" in layers and have("ast-grep"):
+    ast_grep = pinned_binary("ast-grep") if "rules" in layers else None
+    if ast_grep is not None:
         # One scan per root rather than one merged config: each root's sgconfig
         # resolves its own ruleDirs and custom-language libraryPath relative to
         # itself.
@@ -317,14 +318,7 @@ def scan_file(path, roots, cwd, layers):
             if config is None:
                 continue
             raw = run(
-                [
-                    pinned_binary("ast-grep") or "ast-grep",
-                    "scan",
-                    "-c",
-                    str(config),
-                    "--json=compact",
-                    path,
-                ],
+                [ast_grep, "scan", "-c", str(config), "--json=compact", path],
                 timeout=15,
                 cwd=cwd,
             )
