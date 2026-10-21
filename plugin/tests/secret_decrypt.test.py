@@ -6,9 +6,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from agent_guard.checks import secret_decrypt as hook_module
-
-hook = hook_module
+from agent_guard.checks import secret_decrypt as hook
 
 MUST_BLOCK = [
     "age -d secrets.age",

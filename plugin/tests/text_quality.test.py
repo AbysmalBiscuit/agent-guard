@@ -28,11 +28,6 @@ INTERPUNCT = "\u00b7"
 _PERMISSION_CODE = {"deny": 1, "ask": ASK_EXIT, "allow": 0}
 
 
-def load_check():
-    """The check module, for its rules and its judge."""
-    return check_module
-
-
 def check(tool, tool_input):
     verdict = check_module.check(
         {"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": tool_input}
@@ -126,13 +121,12 @@ class TheShippedRules(unittest.TestCase):
     every rule is exercised rather than a chosen few."""
 
     def assert_tier(self, rules, expected_code):
-        module = load_check()
-        for key in rules(module):
-            with self.subTest(rule=module.label(key)):
+        for key in rules(check_module):
+            with self.subTest(rule=check_module.label(key)):
                 out, code = check("Write", {"content": f"a {key} b"})
 
                 self.assertEqual(code, expected_code)
-                self.assertIn(module.label(key), out)
+                self.assertIn(check_module.label(key), out)
 
     def test_every_refused_rule_is_denied_by_name(self):
         self.assert_tier(lambda module: module.REFUSE, 1)
@@ -146,34 +140,32 @@ class TheShippedRules(unittest.TestCase):
 
 class RuleValues(unittest.TestCase):
     def test_a_plain_value_is_the_swap_the_agent_is_told_to_make(self):
-        module = load_check()
-        with patch.dict(module.WARN, {"utilize": "use"}):
-            message, permission = module.judge("we utilize it")
+        with patch.dict(check_module.WARN, {"utilize": "use"}):
+            message, permission = check_module.judge("we utilize it")
 
         self.assertEqual(permission, "allow")
         self.assertIn('"utilize"', message)
         self.assertIn("Write `use` instead.", message)
 
     def test_matching_ignores_case(self):
-        module = load_check()
-        with patch.dict(module.WARN, {"frobnicate": "poke"}):
-            message, permission = module.judge("Frobnicate it first")
+        with patch.dict(check_module.WARN, {"frobnicate": "poke"}):
+            message, permission = check_module.judge("Frobnicate it first")
 
         self.assertEqual(permission, "allow")
         self.assertIn("Write `poke` instead.", message)
         self.assertIn("Frobnicate it first", message)
 
     def test_an_empty_value_says_to_delete(self):
-        module = load_check()
-        with patch.dict(module.WARN, {"very": ""}):
-            message, _ = module.judge("a very big deal")
+        with patch.dict(check_module.WARN, {"very": ""}):
+            message, _ = check_module.judge("a very big deal")
 
         self.assertIn("Delete it.", message)
 
     def test_an_explained_value_is_read_as_written(self):
-        module = load_check()
-        with patch.dict(module.WARN, {"utilize": module.Explain("Say what it does instead.")}):
-            message, _ = module.judge("we utilize it")
+        with patch.dict(
+            check_module.WARN, {"utilize": check_module.Explain("Say what it does instead.")}
+        ):
+            message, _ = check_module.judge("we utilize it")
 
         self.assertIn("Say what it does instead.", message)
         self.assertNotIn("Write `", message)
@@ -217,7 +209,7 @@ class ThroughTheHook(unittest.TestCase):
         self.assertIn("interpunct", out["additionalContext"])
 
     def test_a_warning_lets_the_call_run_and_reaches_the_agent(self):
-        word = next(iter(load_check().WARN))
+        word = next(iter(check_module.WARN))
         out = self.decision("Write", {"file_path": "a.md", "content": f"x {word} y\n"})
 
         self.assertNotIn("permissionDecision", out)

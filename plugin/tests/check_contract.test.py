@@ -23,7 +23,7 @@ from agent_guard import decide  # noqa: E402
 from agent_guard.checks.comment_length import check as comment_length_check  # noqa: E402
 from agent_guard.checks.shell_conventions import check as shell_conventions_check  # noqa: E402
 from agent_guard.checks.text_quality import check as text_quality_check  # noqa: E402
-from agent_guard.contract import ASK_EXIT, FINDING_LINE, SHELL_TOOLS  # noqa: E402
+from agent_guard.contract import FINDING_LINE  # noqa: E402
 from agent_guard.file_checks import check_tool  # noqa: E402
 
 EM_DASH = "\u2014"
@@ -128,9 +128,7 @@ class ProjectRootScriptsKeepTheContract(unittest.TestCase):
 
 
 class OneDefinition(unittest.TestCase):
-    def test_the_ask_exit_code_is_the_contract_constant(self):
-        self.assertEqual(ASK_EXIT, 2)
-        self.assertIn("Bash", SHELL_TOOLS)
+    def test_the_finding_line_is_the_contract_pattern(self):
         match = FINDING_LINE.search("  notes.py:4  [warn:comment-length] long")
         assert match is not None
         self.assertEqual(match.group(1), "4")

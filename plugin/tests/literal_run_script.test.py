@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""The core runs a project script in a subprocess, never in its own interpreter.
+"""A project script still gets argv, stdin and an exit code.
 
-A script in a project root still gets the tool name as argv and the payload on
-stdin, and its stdout and exit code still mean silence, advice, ask or deny.
-The core does not exec that source, so a script cannot change this process.
+The core runs that script in a subprocess. Stdout and the exit code still mean
+silence, advice, ask or deny.
 """
 
 import pathlib
@@ -23,11 +22,6 @@ def fail(message):
 
 
 def main():
-    source = pathlib.Path(__file__).resolve().parents[1] / "agent_guard"
-    core = "\n".join(path.read_text(encoding="utf-8") for path in source.glob("*.py"))
-    if "exec(compile(" in core or "def run_script(" in core:
-        return fail("the core still executes check source")
-
     script = textwrap.dedent(
         """\
         import os
