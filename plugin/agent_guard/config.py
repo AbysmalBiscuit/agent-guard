@@ -183,7 +183,6 @@ JSCPD_MIN_TOKENS = "5"
 # a line bound hides the same files.
 JSCPD_MAX_SIZE = "100m"
 
-# Names, default extensions and default baselines come from the registry.
 PYTHON_ANALYSES = tuple(tool.name for tool in EXTERNAL_TOOLS)
 PYTHON_DEFAULT_EXTENSIONS = {tool.name: tool.extensions for tool in EXTERNAL_TOOLS}
 PYTHON_DEFAULT_BASELINE = {tool.name: tool.baseline for tool in EXTERNAL_TOOLS}
