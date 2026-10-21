@@ -10,7 +10,7 @@ import textwrap
 import unittest
 
 from hook_support import PLUGIN_ROOT as PLUGIN
-from hook_support import requires_pinned, run_hook, stub_mise
+from hook_support import requires_pinned, run_hook, stub_mise, tool_version
 
 NOISY = textwrap.dedent(
     """\
@@ -156,33 +156,13 @@ def commit(project, name, text):
     )
 
 
-def doctor_without_uv(_project, checkout):
-    """doctor in a fresh tree, with the uvx launcher missing.
-
-    The launchers seam points at a path that is not a file, so doctor uses
-    the same rule the runtime uses."""
+def doctor_without_pins(checkout):
+    """doctor in a fresh tree, behind a stub mise that resolves no pin."""
     with tempfile.TemporaryDirectory() as directory:
         fresh = pathlib.Path(directory) / "project"
         fresh.mkdir()
-        missing = fresh / "no-uvx"
-        return doctor(
-            fresh,
-            checkout,
-            env_extra={"AGENT_GUARD_LAUNCHERS": f"uvx={missing}"},
-        )
-
-
-def doctor_without_bunx(_project, checkout):
-    """doctor in a fresh tree, with the bunx launcher missing."""
-    with tempfile.TemporaryDirectory() as directory:
-        fresh = pathlib.Path(directory) / "project"
-        fresh.mkdir()
-        missing = fresh / "no-bunx"
-        return doctor(
-            fresh,
-            checkout,
-            env_extra={"AGENT_GUARD_LAUNCHERS": f"bunx={missing}"},
-        )
+        mise = stub_mise(pathlib.Path(directory) / "mise")
+        return doctor(fresh, checkout, env_extra={"PATH": f"{mise}:{os.environ['PATH']}"})
 
 
 def hook_env(project, checkout=None, env_extra=None, config_dir=None, state_home=None):
@@ -404,12 +384,12 @@ class PythonAuditTests(unittest.TestCase):
         self.assertIn("baseline   : dead.py  from " + origin, out)
         self.assertIn("timeout    : 20", out)
         self.assertIn("from default", out)
-        without_uv = doctor_without_uv(project, checkout)
-        self.assertIn("uv is not on PATH", without_uv)
-        self.assertIn("stays silent", without_uv)
-        bunx_checkout = checkout + "jscpd = true\n"
-        without_bunx = doctor_without_bunx(project, bunx_checkout)
-        self.assertIn("is not on PATH, so jscpd stays silent", without_bunx)
+        without_pins = doctor_without_pins(checkout + "jscpd = true\n")
+        for name in ("complexipy", "vulture", "jscpd"):
+            self.assertIn(
+                f"{name}: pin {tool_version(name)} is not installed, so {name} stays silent",
+                without_pins,
+            )
 
     def test_a_blank_extension_and_a_failing_tool_stay_silent(self):
         """An empty extension matches nothing. A tool that exits non-zero on a

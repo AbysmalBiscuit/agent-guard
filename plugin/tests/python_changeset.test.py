@@ -11,7 +11,7 @@ import textwrap
 import unittest
 
 from hook_support import PLUGIN_ROOT as PLUGIN
-from hook_support import requires_pinned, run_hook
+from hook_support import requires_pinned, run_hook, stub_mise, tool_version
 
 CLONE = textwrap.dedent(
     """\
@@ -124,9 +124,9 @@ def doctor_hook(root, extra_env=None):
     )
 
 
-def install_launcher(root, name, body):
-    """A stand-in for one registry launcher, named through the launchers env."""
-    path = root / "launchers" / name
+def install_stand_in(root, name, body):
+    """A stand-in for one registry tool, for a stub mise to pin."""
+    path = root / "stand-ins" / name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
     path.chmod(0o755)
@@ -471,9 +471,9 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertNotIn("old_a", report)
         self.assertNotIn("pkg.b", report)
 
-    def test_a_missing_launcher_leaves_the_audit_silent_and_shows_in_doctor(self):
-        """A launcher the registry cannot start leaves Stop silent. doctor
-        names each analysis that stayed silent, from the registry label."""
+    def test_a_missing_pin_leaves_the_audit_silent_and_shows_in_doctor(self):
+        """A pin mise cannot resolve leaves Stop silent. doctor names each
+        analysis that stayed silent, with the pin it could not find."""
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "home").mkdir()
@@ -498,26 +498,28 @@ class PythonChangesetTests(unittest.TestCase):
                     """
                 ),
             )
-            missing = root / "launchers" / "missing"
-            launchers = {"AGENT_GUARD_LAUNCHERS": f"bunx={missing},uvx={missing}"}
-            hook = stop_hook(root, session="bare", extra_env=launchers)
-            doctor = doctor_hook(root, launchers)
+            unpinned = {"PATH": f"{stub_mise(root / 'mise')}:{os.environ['PATH']}"}
+            hook = stop_hook(root, session="bare", extra_env=unpinned)
+            doctor = doctor_hook(root, unpinned)
 
         self.assertEqual(hook.returncode, 0, hook.stderr)
         self.assertEqual(hook.stdout, "")
         self.assertEqual(doctor.returncode, 0, doctor.stderr)
-        self.assertIn("jscpd: bunx is not on PATH, so the analysis stayed silent", doctor.stdout)
-        self.assertIn("pyscn: uv is not on PATH, so the analysis stayed silent", doctor.stdout)
+        for name in ("jscpd", "pyscn"):
+            self.assertIn(
+                f"{name}: pin {tool_version(name)} is not installed, so the analysis stayed silent",
+                doctor.stdout,
+            )
 
-    def test_a_launcher_timeout_stays_silent_and_doctor_records_it(self):
-        """A launcher that does not finish inside its budget leaves Stop silent,
-        and doctor shows that analysis's last failure."""
+    def test_a_tool_timeout_stays_silent_and_doctor_records_it(self):
+        """A pinned tool that does not finish inside its budget leaves Stop
+        silent, and doctor shows that analysis's last failure."""
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "home").mkdir()
             sleep = shutil.which("sleep")
             self.assertIsNotNone(sleep)
-            stall = install_launcher(root, "stall", f"#!/bin/sh\nexec {sleep} 30\n")
+            stall = install_stand_in(root, "stall", f"#!/bin/sh\nexec {sleep} 30\n")
             init_repo(root)
             pkg = root / "pkg"
             pkg.mkdir()
@@ -540,7 +542,9 @@ class PythonChangesetTests(unittest.TestCase):
             hook = stop_hook(
                 root,
                 session="timeout",
-                extra_env={"AGENT_GUARD_LAUNCHERS": f"bunx={stall}"},
+                extra_env={
+                    "PATH": f"{stub_mise(root / 'mise', {'jscpd': stall})}:{os.environ['PATH']}"
+                },
                 timeout=20,
             )
             doctor = doctor_hook(root)

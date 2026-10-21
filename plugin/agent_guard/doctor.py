@@ -5,7 +5,7 @@ import shutil
 from . import _state
 from .checks import MANDATORY_CHECKS
 from .config import Settings, discover_roots, load_config, sgconfig_for
-from .external import EXTERNAL_TOOLS, missing_launcher_notes
+from .external import EXTERNAL_TOOLS, missing_tool_notes
 from .paths import CONFIG_NAME
 from .process import have, python_tool_problem
 from .tools import TOOL_IDS, pinned_binary, tool_version
@@ -112,7 +112,7 @@ def doctor(cwd):
         print(f"  python tools : {problem}")
     else:
         enabled = {tool.name for tool in EXTERNAL_TOOLS if settings.python[tool.name].enabled}
-        for note in missing_launcher_notes(enabled, cwd):
+        for note in missing_tool_notes(enabled, cwd):
             print(f"  python tools : {note}")
     if settings.scope == "diff":
         print("  scope=diff       -> per-file findings limited to lines the branch")
