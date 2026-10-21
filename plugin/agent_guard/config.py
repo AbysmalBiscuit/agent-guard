@@ -209,6 +209,11 @@ PYTHON_DEFAULT_BASELINE = {tool.name: tool.baseline for tool in EXTERNAL_TOOLS}
 FILE_LENGTH_WARN = "Split this file by responsibility, and move tests into focused files."
 FILE_LENGTH_BLOCK = "Split this file by responsibility, and move tests into focused files."
 
+# Used when the check is on and no tree names its own limits list.
+FILE_LENGTH_DEFAULT_LIMITS = (
+    {"extensions": r"\.py$", "warn_lines": 500, "block_lines": 1000},
+)
+
 
 class FileLengthLimit:
     """One extension regex, or one path or glob, with its two levels."""
@@ -233,7 +238,13 @@ class FileLength:
         self.warn_message = _message(table.get("warn_message"), FILE_LENGTH_WARN)
         self.block_message = _message(table.get("block_message"), FILE_LENGTH_BLOCK)
         limits = table.get("limits")
-        self.limits = [FileLengthLimit(item) for item in limits] if isinstance(limits, list) else []
+        if isinstance(limits, list):
+            rows = limits
+        elif self.enabled:
+            rows = FILE_LENGTH_DEFAULT_LIMITS
+        else:
+            rows = []
+        self.limits = [FileLengthLimit(item) for item in rows]
         self.origin = origins.get("file_length", "")
 
 

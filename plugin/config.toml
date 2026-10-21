@@ -141,6 +141,8 @@ extensions = '\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|pyi|rs|go|sh|bash|sql|toml|ya?
 # [file_length]
 
 # enabled = false
+# With enabled and no limits list, Python files warn above 500 lines and
+# block above 1000. A limits list replaces that row. limits = [] drops it.
 
 # warn_message = "Split this file by responsibility, and move tests into focused files."
 # block_message = "Split this file by responsibility, and move tests into focused files."

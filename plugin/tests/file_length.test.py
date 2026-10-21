@@ -345,6 +345,68 @@ lines = 6
         self.assertNotIn("   .py", report)
         self.assertEqual(specific["permissionDecision"], "deny")
 
+    def test_enabled_with_no_rows_uses_the_default_python_row(self):
+        """enabled = true with no limits list uses the Python default. A file
+        above 500 lines warns, one above 1000 blocks, and both use the default
+        messages. A file at 500 stays quiet, a long non-Python file stays quiet,
+        and limits = [] drops the default."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            write_lines(root / "seed.py", 1)
+            commit_all(root, "base")
+            write_lines(root / "at_warn.py", 500)
+            write_lines(root / "warn.py", 501)
+            write_lines(root / "block.py", 1001)
+            write_lines(root / "notes.rs", 1200)
+            (root / "blank.py").write_text("\n", encoding="utf-8")
+            (root / "   ").write_text("x\n", encoding="utf-8")
+            (root / "notes.txt").write_text("untracked\n", encoding="utf-8")
+            enable(
+                root,
+                """\
+fallow = false
+block = true
+
+[file_length]
+enabled = true
+""",
+            )
+
+            result = stop_hook(root, session="default-row")
+            enable(
+                root,
+                """\
+fallow = false
+block = true
+
+[file_length]
+enabled = true
+limits = []
+""",
+            )
+            dropped = stop_hook(root, session="default-dropped")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        specific = json.loads(result.stdout)["hookSpecificOutput"]
+        report = specific["additionalContext"]
+        self.assertIn("  warn.py  ", report)
+        self.assertIn("501 lines", report)
+        self.assertIn("past the warn limit of 500", report)
+        self.assertIn(WARN_MESSAGE, report)
+        self.assertIn("  block.py  ", report)
+        self.assertIn("1001 lines", report)
+        self.assertIn("past the block limit of 1000", report)
+        self.assertIn(BLOCK_MESSAGE, report)
+        self.assertNotIn("at_warn.py", report)
+        self.assertNotIn("notes.rs", report)
+        self.assertNotIn("blank.py", report)
+        self.assertNotIn("notes.txt", report)
+        self.assertEqual(specific["permissionDecision"], "deny")
+        self.assertEqual(dropped.returncode, 0, dropped.stderr)
+        self.assertEqual(dropped.stdout, "")
+
     def test_an_accept_row_without_lines_is_ignored(self):
         """An accept row with no lines, or with lines at zero, does not accept
         the file. The file stays quiet, and doctor names the row as a config
