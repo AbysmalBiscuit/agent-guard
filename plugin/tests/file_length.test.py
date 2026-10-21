@@ -11,8 +11,8 @@ import unittest
 from hook_support import PLUGIN_ROOT as PLUGIN
 from hook_support import run_hook
 
-WARN_MESSAGE = "split this file by responsibility, and move tests into focused files"
-BLOCK_MESSAGE = "split this file by responsibility, and move tests into focused files"
+WARN_MESSAGE = "Split this file by responsibility, and move tests into focused files."
+BLOCK_MESSAGE = "Split this file by responsibility, and move tests into focused files."
 
 
 def commit_all(root, message):
@@ -337,7 +337,7 @@ lines = 6
         self.assertIn(BLOCK_MESSAGE, report)
         self.assertNotIn("blank.py", report)
 
-    def test_a_nearer_table_keeps_farther_limits_and_replaces_its_own(self):
+    def test_a_nearer_table_keeps_farther_keys_and_replaces_limits(self):
         """A nearer [file_length] merges per key. It omits enabled, so the
         farther enabled stays on, and its own limits list replaces the farther
         list. A file past the farther warn limit stays quiet under the nearer
