@@ -9,7 +9,7 @@ One hook script, `plugin/scripts/agent_guard.py`, handles every hook event:
 | `SessionStart` | `hooks/bootstrap-tools`, which installs ast-grep and fallow when missing. |
 | `PreToolUse` | `tool_checks/` scripts on the shell command or edit about to run, plus the `mandatory/` tier on shell tools. A check can advise, ask the human, or deny. |
 | `PostToolUse` (edits) | ast-grep `rules/` and `checks/` scripts on each edited file, reporting only the lines the branch introduced. Advisory. |
-| `Stop`, `SubagentStop` | A fallow audit of the changeset for duplication and over-extraction, plus `changeset_checks/` scripts. Advisory unless `block = true`. |
+| `Stop`, `SubagentStop` | A fallow audit of the changeset for duplication and over-extraction, plus `changeset_checks/` scripts. A tree can also turn on Python complexity and dead-code analyses. Advisory unless `block = true`. |
 | `SessionEnd` | Removes the fallow audit cache of the session's project. |
 
 The hook always exits 0 and reports through the hook JSON contract, so a broken check goes quiet instead of wedging the session.
@@ -112,6 +112,50 @@ The settings you are most likely to change:
 | `extensions` | most source, config, and markdown files | regex of files the per-file layers check |
 | `ignore_extra` | unset | regex of paths to skip, added to the built-in generated and vendored paths |
 | `log` | `1` | how much each run appends to `~/agent-guard.log`, from `0` (nothing) to `3` (command text too) |
+
+Python analyses live under `[python]` in a tree's `config.toml`. Each one is off until that tree turns it on. A tree picks the file types with `<analysis>_extensions`. The baseline file holds offenders that stay silent.
+
+```toml
+[python]
+complexipy = true
+complexipy_extensions = '\.py$'
+complexipy_baseline = "complexipy-snapshot.json"
+complexipy_max = 15
+
+lizard = true
+lizard_extensions = '\.(py|ts|tsx)$'
+lizard_baseline = "whitelizard.txt"
+lizard_ccn = 15
+lizard_length = 1000
+lizard_arguments = 100
+
+vulture = true
+vulture_extensions = '\.py$'
+vulture_baseline = "vulture-whitelist.py"
+vulture_min_confidence = 60
+
+timeout = 20
+```
+
+| Setting | Default | Effect |
+|---|---|---|
+| `complexipy` | `false` | cognitive complexity, through complexipy |
+| `complexipy_extensions` | `\.py$` | file types complexipy reads |
+| `complexipy_baseline` | `complexipy-snapshot.json` | snapshot of functions that stay silent |
+| `complexipy_max` | `15` | cognitive complexity a function may reach |
+| `lizard` | `false` | cyclomatic complexity, length, and parameter count |
+| `lizard_extensions` | `\.(py\|ts\|tsx)$` | file types lizard reads. Add or drop TypeScript here |
+| `lizard_baseline` | `whitelizard.txt` | function names that stay silent |
+| `lizard_ccn` | `15` | cyclomatic complexity a function may reach |
+| `lizard_length` | `1000` | function length a function may reach |
+| `lizard_arguments` | `100` | parameter count a function may reach |
+| `vulture` | `false` | dead code, through vulture |
+| `vulture_extensions` | `\.py$` | file types vulture reads |
+| `vulture_baseline` | `vulture-whitelist.py` | names that stay silent |
+| `vulture_min_confidence` | `60` | lowest confidence vulture reports |
+| `timeout` | `20` | seconds one analysis may run |
+
+The tools run through `uvx` at the versions pinned in `plugin/scripts/agent_guard.py`, or from the tree's own environment when it provides them. Nothing is installed into the project. A missing `uv`, a missing tool, or a timeout leaves the audit silent. `doctor` lists which analyses are on, where each setting came from, and that silence.
 
 `mandatory/` holds checks no setting, root, or environment variable can disable or move. They load only from the installed plugin and run on shell tools.
 

@@ -97,6 +97,8 @@ scope = "diff"
 # checking it.
 extensions = '\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|pyi|rs|go|sh|bash|sql|toml|ya?ml|md|mdx|markdown)$'
 
+# [python] complexipy, lizard, vulture: each off until a tree sets it true. The README lists each setting, its default and its baseline file.
+
 # Paths the hook skips entirely: code that is generated rather than written, and
 # vendored code the tree does not own. This holds only the shapes every
 # TypeScript tree shares; a project names its own directories through
