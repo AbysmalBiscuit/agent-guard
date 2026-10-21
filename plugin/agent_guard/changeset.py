@@ -824,8 +824,12 @@ def _length_limit(rel, limits):
 
 
 def changed_files(base, cwd, globs, keep=None):
-    """What the branch touched, including what git does not track yet. `keep`
-    drops a path before the 200-file cap."""
+    """What the branch touched, including what git does not track yet. A file an
+    agent wrote and has not committed never appears in `git diff`, and it is the
+    likeliest place for a copy of something that already exists: written from
+    scratch by someone who did not find the original. --exclude-standard keeps
+    ignored trees such as node_modules out. `keep` drops a path before the
+    200-file cap."""
     listings = (
         ["git", "diff", "--name-only", base, "--", *globs],
         ["git", "ls-files", "--others", "--exclude-standard", "--", *globs],
