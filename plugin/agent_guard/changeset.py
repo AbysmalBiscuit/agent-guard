@@ -491,56 +491,27 @@ def render_clone_groups(groups, seen_file, settings):
     return format_fresh_groups(kept, seen_file, settings)
 
 
-# jscpd --format takes a format name, so a suffix that is not already one maps here.
-_JSCPD_FORMAT_BY_SUFFIX = {
-    "py": "python",
-    "pyi": "python",
-    "ts": "typescript",
-    "tsx": "tsx",
-    "js": "javascript",
-    "jsx": "jsx",
-    "go": "go",
-    "rs": "rust",
-    "java": "java",
-    "kt": "kotlin",
-    "kts": "kotlin",
-    "scala": "scala",
-    "cs": "csharp",
-    "c": "c",
-    "h": "c",
-    "cpp": "cpp",
-    "cc": "cpp",
-    "cxx": "cpp",
-    "hpp": "cpp",
-    "php": "php",
-    "rb": "ruby",
-    "swift": "swift",
-    "clj": "clojure",
-    "vue": "vue",
-    "svelte": "svelte",
-    "astro": "astro",
-    "md": "markdown",
-}
+def jscpd_pattern(selected):
+    """jscpd --pattern for the suffixes of the selected files.
+
+    One suffix is `**/*.<suffix>`. Several are `**/*.{<suffixes>}`. A suffix
+    outside jscpd's format table still scans: the pattern names the file."""
+    suffixes = list(dict.fromkeys(Path(rel).suffix.lstrip(".") for rel in selected))
+    suffixes = [suffix for suffix in suffixes if suffix.isascii() and suffix.isalnum()]
+    if not suffixes:
+        return ""
+    if len(suffixes) == 1:
+        return f"**/*.{suffixes[0]}"
+    return "**/*.{" + ",".join(suffixes) + "}"
 
 
 def jscpd_suffixes(ext_re):
-    """Suffixes the extensions regex selects, mapped or not."""
+    """Suffixes the extensions regex writes, so the changeset lists them."""
     written = []
     for bare, grouped in re.findall(r"\\\.(?:([A-Za-z0-9]+)|(\([^)]*\)))", ext_re.pattern):
         pieces = [bare] if bare else grouped[1:-1].split("|")
         written.extend(piece for piece in pieces if piece.isascii() and piece.isalnum())
-    matched = [suffix for suffix in _JSCPD_FORMAT_BY_SUFFIX if ext_re.search(f"a.{suffix}")]
-    return list(dict.fromkeys([*written, *matched]))
-
-
-def jscpd_formats(selected):
-    """jscpd --format values for the selected files. Empty means skip jscpd."""
-    formats = []
-    for rel in selected:
-        name = _JSCPD_FORMAT_BY_SUFFIX.get(Path(rel).suffix.lstrip("."))
-        if name and name not in formats:
-            formats.append(name)
-    return formats
+    return list(dict.fromkeys(written))
 
 
 def find_jscpd(changed, analysis, settings, cwd, base, timeout, seen_file):
@@ -553,8 +524,8 @@ def find_jscpd(changed, analysis, settings, cwd, base, timeout, seen_file):
     if cmd is None:
         return ""
     added = {rel: changed_lines(str(cwd / rel), base, cwd) for rel in selected}
-    formats = jscpd_formats(selected)
-    if not formats:
+    pattern = jscpd_pattern(selected)
+    if not pattern:
         return ""
     try:
         out_dir = Path(tempfile.mkdtemp(prefix="jscpd-", dir=STATE_DIR))
@@ -563,8 +534,8 @@ def find_jscpd(changed, analysis, settings, cwd, base, timeout, seen_file):
     report = out_dir / "jscpd-report.json"
     argv = [
         *cmd,
-        "--format",
-        ",".join(formats),
+        "--pattern",
+        pattern,
         "--min-lines",
         JSCPD_MIN_LINES,
         "--min-tokens",
