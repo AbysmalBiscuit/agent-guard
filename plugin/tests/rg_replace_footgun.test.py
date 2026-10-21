@@ -29,7 +29,7 @@ class RgReplaceFootgunTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(verdict(command).permission, "allow")
 
-    def test_empty_blank_and_a_broken_quote_stay_silent(self):
+    def test_empty_and_blank_stay_silent(self):
         for command in ("", "   ", "   \n  "):
             with self.subTest(command=command):
                 self.assertEqual(verdict(command).permission, "allow")
