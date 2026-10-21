@@ -378,18 +378,91 @@ class PythonAuditTests(unittest.TestCase):
 
     def test_a_missing_uv_leaves_the_audit_silent(self):
         """uv and the tools are off PATH. The tree asked for an analysis, and
-        the hook still exits with no findings."""
+        the hook still exits with no findings. The next doctor names the gap."""
         with tempfile.TemporaryDirectory() as directory:
             project = pathlib.Path(directory) / "project"
             project.mkdir()
             commit(project, "seed.py", CALM)
             (project / "work.py").write_text(NOISY, encoding="utf-8")
+            checkout = tree_config("complexipy")
             out = stop(
                 project,
-                tree_config("complexipy"),
+                checkout,
                 env_extra={"PATH": "/usr/bin:/bin"},
             )
+            reported = doctor(project, checkout)
         self.assertEqual(out, "")
+        self.assertIn("uv is not on PATH", reported)
+        self.assertIn("stayed silent", reported)
+
+    def test_a_clean_stop_clears_a_recorded_python_tool_problem(self):
+        """A Stop that could not start uv records the gap. A later Stop that
+        runs the tool and finds nothing clears that note, so doctor is quiet."""
+        with tempfile.TemporaryDirectory() as directory:
+            project = pathlib.Path(directory) / "project"
+            project.mkdir()
+            commit(project, "seed.py", CALM)
+            (project / "work.py").write_text(CALM, encoding="utf-8")
+            checkout = tree_config("lizard")
+            blocked = stop(
+                project,
+                checkout,
+                env_extra={"PATH": "/usr/bin:/bin"},
+            )
+            stale = doctor(project, checkout)
+            # A repeat of the same diff skips the tools, so add a file the
+            # second Stop has to read. The function stays under the threshold.
+            (project / "again.py").write_text(CALM, encoding="utf-8")
+            clean = stop(project, checkout)
+            reported = doctor(project, checkout)
+        self.assertEqual(blocked, "")
+        self.assertIn("uv is not on PATH", stale)
+        self.assertEqual(clean, "")
+        self.assertNotIn("python tools", reported)
+        self.assertNotIn("uv is not on PATH", reported)
+
+    def test_an_empty_changeset_clears_a_recorded_python_tool_problem(self):
+        """A Stop with no changed file still drops a note an earlier Stop left,
+        so doctor does not keep a gap the tools no longer have work for."""
+        with tempfile.TemporaryDirectory() as directory:
+            project = pathlib.Path(directory) / "project"
+            project.mkdir()
+            commit(project, "seed.py", CALM)
+            (project / "work.py").write_text(NOISY, encoding="utf-8")
+            checkout = tree_config("lizard")
+            blocked = stop(
+                project,
+                checkout,
+                env_extra={"PATH": "/usr/bin:/bin"},
+            )
+            (project / "work.py").unlink()
+            empty = stop(project, checkout)
+            reported = doctor(project, checkout)
+        self.assertEqual(blocked, "")
+        self.assertEqual(empty, "")
+        self.assertNotIn("python tools", reported)
+
+    def test_a_tool_uv_cannot_fetch_stays_silent_and_doctor_shows_it(self):
+        """uv is on PATH, but the pinned tool cannot be fetched. Stop prints
+        nothing. The next doctor names that the tool produced no report."""
+        with tempfile.TemporaryDirectory() as directory:
+            project = pathlib.Path(directory) / "project"
+            project.mkdir()
+            cache = pathlib.Path(directory) / "uv-cache"
+            cache.mkdir()
+            commit(project, "seed.py", CALM)
+            (project / "work.py").write_text(NOISY, encoding="utf-8")
+            checkout = tree_config("complexipy")
+            out = stop(
+                project,
+                checkout,
+                env_extra={"UV_OFFLINE": "1", "UV_CACHE_DIR": str(cache)},
+            )
+            reported = doctor(project, checkout)
+        self.assertEqual(out, "")
+        self.assertIn("complexipy", reported)
+        self.assertIn("python tools", reported)
+        self.assertIn("stayed silent", reported)
 
     def test_vulture_stays_silent_on_a_baselined_name(self):
         out = self.pair("vulture", extra=[("vulture-whitelist.py", "fresh_unused\n")])

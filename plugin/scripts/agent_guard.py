@@ -220,6 +220,12 @@ def python_tool_problem():
         return ""
 
 
+def clear_python_problem():
+    """Drop the last tool note. A later Stop records a new one only if it fails."""
+    with contextlib.suppress(OSError):
+        (STATE_DIR / PYTHON_TOOL_PROBLEM).unlink(missing_ok=True)
+
+
 def tool_command(name, cwd):
     """The argv that launches one analysis tool, or None when it cannot start.
 
@@ -1312,6 +1318,11 @@ def _run_python_tool(cmd, timeout, cwd, name):
     except Exception:
         record_python_problem(f"{name} failed to start, so the analysis stayed silent")
         return ""
+    if p.returncode != 0 and not (p.stdout or "").strip():
+        record_python_problem(
+            f"{name} exited {p.returncode} with no output, so the analysis stayed silent"
+        )
+        return ""
     return p.stdout or ""
 
 
@@ -1350,6 +1361,10 @@ def find_complexipy(changed, analysis, settings, cwd, base, timeout):
             name="complexipy",
         )
         report = Path(out_dir.name) / "complexipy-results.json"
+        # complexipy writes the report to a file and may print nothing, so an
+        # empty stdout is not the failure. A missing report is.
+        if not report.is_file() and not python_tool_problem():
+            record_python_problem("complexipy wrote no report, so the analysis stayed silent")
         try:
             rows = json.loads(report.read_text(encoding="utf-8")) if report.is_file() else []
         except (OSError, ValueError):
@@ -1481,6 +1496,7 @@ def find_python(changed, settings, cwd, base, budget):
 
     `budget` is seconds left under the Stop hook's own deadline. Each tool gets
     only what remains, and a tool with none left is skipped and recorded."""
+    clear_python_problem()
     sections = []
     runners = {
         "complexipy": find_complexipy,
@@ -1566,6 +1582,8 @@ def check_changeset(event, session, agent_type, roots, settings, cwd):
     # branch that touched only markdown or shell still has to answer for them.
     violations = run_changeset_checks(base, roots, cwd)
     if not changed and not violations:
+        # Nothing for the tools to read. Drop a note from an earlier Stop.
+        clear_python_problem()
         emit_silent()
 
     sdir = STATE_DIR / session
