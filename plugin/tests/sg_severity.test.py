@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cases for the ast-grep severity mapping in scripts/agent_guard.py.
+"""Cases for the ast-grep severity mapping in agent_guard.
 
 A rule declares its tier in its own file, and the runner has to carry that
 declaration into the report. "hint" is what a rule that declares nothing
@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tempfile
 
-GUARD = pathlib.Path(__file__).parent.parent / "scripts" / "agent_guard.py"
+GUARD = pathlib.Path(__file__).parent.parent / "agent_guard"
 
 RULE = """id: {name}
 language: typescript

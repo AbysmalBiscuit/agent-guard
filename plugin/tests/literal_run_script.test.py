@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cases for run_script in scripts/agent_guard.py. Run directly: python3 <this file>.
+"""Cases for run_script in agent_guard.process. Run directly: python3 <this file>.
 
 run_script executes a check inside the runner's own interpreter instead of
 spawning a Python for it. That buys roughly a 4x speedup on a Bash call and
@@ -31,19 +31,26 @@ import sys
 import tempfile
 import types
 
-SCRIPT = pathlib.Path(__file__).parent.parent / "scripts" / "agent_guard.py"
-CHECKS = pathlib.Path(__file__).parent.parent / "tool_checks"
+PLUGIN = pathlib.Path(__file__).parent.parent
+SCRIPT = PLUGIN / "agent_guard" / "process.py"
+CHECKS = PLUGIN / "tool_checks"
 SOURCE = SCRIPT.read_text(encoding="utf-8")
+sys.path.insert(0, str(PLUGIN))
+
+import agent_guard.process as process_module  # noqa: E402
 
 # Long enough that a check cannot finish inside it, short enough to pay per mutant.
 WEDGE = 0.25
 
 
 def load(source=None):
-    """agent-guard as a module, optionally from mutated source."""
+    """The process module, or a mutant of its source when a case asks for one."""
+    if source is None:
+        return process_module
     module = types.ModuleType("guard_under_test")
     module.__file__ = str(SCRIPT)
-    exec(compile(source or SOURCE, str(SCRIPT), "exec"), module.__dict__)
+    module.__package__ = "agent_guard"
+    exec(compile(source, str(SCRIPT), "exec"), module.__dict__)
     module.__dict__["IN_PROCESS"] = True
     return module
 

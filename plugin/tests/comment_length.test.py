@@ -16,7 +16,7 @@ import tempfile
 import types
 
 CHECK = pathlib.Path(__file__).parent.parent / "checks" / "comment_length.py"
-GUARD = pathlib.Path(__file__).parent.parent / "scripts" / "agent_guard.py"
+GUARD = pathlib.Path(__file__).parent.parent / "agent_guard"
 
 for _key in [k for k in os.environ if k.startswith("AGENT_GUARD_")]:
     del os.environ[_key]

@@ -13,7 +13,7 @@ import sys
 import tempfile
 import unittest
 
-SCRIPT = pathlib.Path(__file__).parent.parent / "scripts" / "agent_guard.py"
+SCRIPT = pathlib.Path(__file__).parent.parent / "agent_guard"
 
 
 class LogLevelTests(unittest.TestCase):

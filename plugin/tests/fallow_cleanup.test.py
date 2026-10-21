@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "agent_guard.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "agent_guard"
 
 
 @unittest.skipUnless(shutil.which("fallow"), "requires fallow with audit-cache remove")

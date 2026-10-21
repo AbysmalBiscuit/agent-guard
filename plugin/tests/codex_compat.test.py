@@ -10,7 +10,7 @@ import tempfile
 import unittest
 
 PLUGIN_ROOT = pathlib.Path(__file__).parent.parent
-SCRIPT = PLUGIN_ROOT / "scripts" / "agent_guard.py"
+SCRIPT = PLUGIN_ROOT / "agent_guard"
 
 
 class CodexCompatibilityTests(unittest.TestCase):

@@ -11,7 +11,7 @@ import tempfile
 import textwrap
 import unittest
 
-SCRIPT = pathlib.Path(__file__).parent.parent / "scripts" / "agent_guard.py"
+SCRIPT = pathlib.Path(__file__).parent.parent / "agent_guard"
 PLUGIN = pathlib.Path(__file__).parent.parent
 
 CLONE = textwrap.dedent(

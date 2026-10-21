@@ -18,7 +18,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).parent.parent
 CHECK = ROOT / "tool_checks" / "text_quality.py"
-GUARD = ROOT / "scripts" / "agent_guard.py"
+GUARD = ROOT / "agent_guard"
 
 EM_DASH = "\u2014"
 EN_DASH = "\u2013"
