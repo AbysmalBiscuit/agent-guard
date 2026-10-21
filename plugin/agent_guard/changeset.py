@@ -541,6 +541,7 @@ def find_jscpd(changed, analysis, settings, cwd, base, timeout, seen_file):
     suffixes = [Path(rel).suffix.lstrip(".") for rel in selected]
     cross = jscpd_cross_formats(suffixes)
     try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
         out_dir = Path(tempfile.mkdtemp(prefix="jscpd-", dir=STATE_DIR))
     except OSError:
         return ""
