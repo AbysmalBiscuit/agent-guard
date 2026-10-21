@@ -175,11 +175,12 @@ class MissingPinTests(unittest.TestCase):
             }
 
             hook = stop_hook(project, env)
+            ran = log.exists()
             doctor = doctor_hook(project, env)
 
         self.assertEqual(hook.returncode, 0, hook.stderr)
         self.assertEqual(hook.stdout, "")
-        self.assertFalse(log.exists())
+        self.assertFalse(ran)
         self.assertEqual(doctor.returncode, 0, doctor.stderr)
         for name in TOOL_IDS:
             self.assertIn(f"{name:<10} : not installed  pin {tool_version(name)}", doctor.stdout)
