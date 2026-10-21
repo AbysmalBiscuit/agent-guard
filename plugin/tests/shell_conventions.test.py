@@ -48,6 +48,10 @@ class ShellConventionsTests(unittest.TestCase):
             self.assert_denied(command, ["rg"], "rg")
             self.assert_allowed(command, ["fd"])
 
+    def test_xargs_grep_reaches_the_grep_rule(self):
+        command = "fd . | xargs grep -r foo ."
+        self.assert_denied(command, ["rg"], "grep over files")
+
     def test_rg_files_pipeline_needs_fd(self):
         self.assert_denied("rg --files | rg test", ["rg", "fd"], "fd")
         self.assert_allowed("rg --files | rg test", ["rg"])

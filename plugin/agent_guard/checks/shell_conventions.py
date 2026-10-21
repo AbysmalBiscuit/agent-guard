@@ -24,41 +24,10 @@ The `rg -r<flags>` footgun has a hook of its own and is deliberately absent here
 """
 
 import re
-import shlex
 import shutil
 
 from ..contract import Decision, denied
-
-# Pipes, lists, subshells, redirections and process substitutions all start a
-# fresh command position, so `<(fd .)` is read exactly like `| fd .`.
-OPERATOR = re.compile(r"^[|&;()<>{}\n]+$")
-ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*=")
-# Words that keep the next one in command position.
-WRAPPERS = {
-    "sudo",
-    "command",
-    "builtin",
-    "exec",
-    "env",
-    "time",
-    "timeout",
-    "nice",
-    "ionice",
-    "stdbuf",
-    "nohup",
-    "watch",
-    "noglob",
-    "then",
-    "do",
-    "else",
-    "elif",
-    "if",
-    "while",
-    "until",
-    "!",
-}
-SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
-DURATION = re.compile(r"^\d+[smhd]?$")
+from ..shell_commands import read_commands
 
 # git's own options, which sit before the subcommand. The first group takes a
 # separate operand; the second does not.
@@ -80,43 +49,13 @@ class Segment:
         self.args = args
 
 
-def tokenize(command):
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    return list(lexer)
-
-
-def segments(command, depth=0):
+def segments(command):
     """Every command position in the line, in order. An unparseable line yields
     nothing, so the guard falls silent rather than guessing."""
-    if depth > 2:
-        return []
-    try:
-        tokens = tokenize(command)
-    except ValueError:
-        return []
-
-    found = []
-    op, current = "", None
-    for i, token in enumerate(tokens):
-        if OPERATOR.match(token):
-            op, current = ("|" if token == "|" else token), None
-            continue
-        if current is None:
-            # Env assignments and wrapper options leave the real command word
-            # still ahead: `timeout 10 grep …` is a grep call.
-            if ASSIGNMENT.match(token) or token in WRAPPERS:
-                continue
-            if token.startswith("-") or DURATION.match(token):
-                continue
-            current = Segment(op, token.rsplit("/", 1)[-1], [])
-            found.append(current)
-            continue
-        current.args.append(token)
-        # `bash -c '<line>'` hides a whole line inside one argument.
-        if current.name in SHELLS and token == "-c" and i + 1 < len(tokens):
-            found.extend(segments(tokens[i + 1], depth + 1))
-    return found
+    return [
+        Segment(item.op, item.name, list(item.args))
+        for item in read_commands(command, partial=False)
+    ]
 
 
 def operands(args, opts_with_value):
