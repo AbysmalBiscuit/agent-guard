@@ -58,14 +58,12 @@ def doctor(cwd):
             binary = pinned_binary(tool)
             where = binary or "not installed"
             print(f"  {tool:<10} : {where}  pin {pinned or 'unset'}")
-            if binary is None:
-                print(f"  {tool} missing -> the audit stays silent for it")
         else:
             print(f"  {tool:<10} : {shutil.which(tool) or 'not installed'}")
     print()
     print(f"  tool_checks      : {'on' if settings.tool_checks else 'off'}")
     print("  mandatory checks : always on; no config key or root reaches them")
-    if pinned_binary("ast-grep") is None and not have("ast-grep"):
+    if pinned_binary("ast-grep") is None:
         print("  ast-grep missing -> per-file rules skipped (checks/ still run)")
     if pinned_binary("fallow") is None:
         print("  fallow missing   -> changeset duplication check skipped")
