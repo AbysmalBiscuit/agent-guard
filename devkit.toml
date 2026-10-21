@@ -67,6 +67,9 @@ steps = [
     { task = "validate-marketplace" },
 ]
 
+[people.lev]
+github = "AbysmalBiscuit"
+
 [ticket.fields.github.assignees]
 type = "user"
 list = true
