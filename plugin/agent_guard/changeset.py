@@ -767,9 +767,11 @@ def source_globs(settings):
         globs.extend(PYTHON_GLOBS)
     jscpd = settings.python["jscpd"]
     if jscpd.enabled:
-        for suffix in _JSCPD_FORMAT_BY_SUFFIX:
-            if jscpd.ext_re.search(f"a.{suffix}"):
-                globs.append(f"*.{suffix}")
+        globs.extend(
+            f"*.{suffix}"
+            for suffix in _JSCPD_FORMAT_BY_SUFFIX
+            if jscpd.ext_re.search(f"a.{suffix}")
+        )
     return tuple(dict.fromkeys(globs))
 
 
