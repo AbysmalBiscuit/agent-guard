@@ -52,7 +52,7 @@ def doctor_hook(root):
     env["AGENT_GUARD_CONFIG_DIR"] = str(PLUGIN)
     env["AGENT_GUARD_LOG"] = "0"
     env["XDG_STATE_HOME"] = str(root / "state")
-    result = run_hook(
+    return run_hook(
         None,
         args=("doctor",),
         capture_output=True,
@@ -61,7 +61,6 @@ def doctor_hook(root):
         env=env,
         timeout=30,
     )
-    return result
 
 
 def stop_hook(root, session="test-session", extra_env=None):
