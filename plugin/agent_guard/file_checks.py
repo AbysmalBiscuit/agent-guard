@@ -55,6 +55,16 @@ def _bounded(seconds):
         signal.signal(signal.SIGALRM, previous)
 
 
+def _check_name(check):
+    return check.__module__.rsplit(".", 1)[-1]
+
+
+def _call(check, *args, timeout):
+    """The check's return, or a TimeoutError the caller logs and skips."""
+    with _bounded(timeout):
+        return check(*args)
+
+
 def run_checks(path, roots, cwd):
     """Package file checks, then a root's checks/ scripts.
 
@@ -66,10 +76,9 @@ def run_checks(path, roots, cwd):
     except OSError:
         source = ""
     for check in FILE_CHECKS:
-        name = check.__module__.rsplit(".", 1)[-1]
+        name = _check_name(check)
         try:
-            with _bounded(FILE_CHECK_TIMEOUT):
-                lines = check(source, path)
+            lines = _call(check, source, path, timeout=FILE_CHECK_TIMEOUT)
         except TimeoutError:
             _state.log(2, "check", script=name, verdict="silent", reason="timeout")
             continue
@@ -163,10 +172,9 @@ def run_mandatory(payload):
         return SILENT
     named = []
     for check in MANDATORY_CHECKS:
-        name = check.__module__.rsplit(".", 1)[-1]
+        name = _check_name(check)
         try:
-            with _bounded(CHECK_TIMEOUT):
-                named.append((name, check(payload)))
+            named.append((name, _call(check, payload, timeout=CHECK_TIMEOUT)))
         except TimeoutError:
             _state.log(2, "mandatory", script=name, verdict="silent", reason="timeout")
         except Exception:
@@ -202,10 +210,9 @@ def check_tool(payload, roots, settings, cwd):
     tool = payload.get("tool_name") or ""
     named = []
     for check in TOOL_CHECKS:
-        name = check.__module__.rsplit(".", 1)[-1]
+        name = _check_name(check)
         try:
-            with _bounded(CHECK_TIMEOUT):
-                named.append((name, check(payload)))
+            named.append((name, _call(check, payload, timeout=CHECK_TIMEOUT)))
         except TimeoutError:
             _state.log(2, "tool-check", script=name, verdict="silent", reason="timeout")
         except Exception:
