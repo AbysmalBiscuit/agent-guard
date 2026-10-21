@@ -894,11 +894,9 @@ def check_changeset(session, agent_type, roots, settings, cwd):
     # Skip re-running when the changeset has not moved since the last report.
     # Python tools run after this skip: a repeat of the same diff must not pay
     # for them again.
-    fingerprint = (
-        changeset_fingerprint(base, changed, cwd, globs)
-        + hashlib.sha1(violations.encode("utf-8", "replace"), usedforsecurity=False).hexdigest()
-        + changeset_fingerprint(base, length_changed, cwd, ())
-    )
+    fingerprint = changeset_fingerprint(base, changed, cwd, globs) + hashlib.sha1(
+        violations.encode("utf-8", "replace"), usedforsecurity=False
+    ).hexdigest()
     last = sdir / "last-diff"
     try:
         if last.is_file() and last.read_text(encoding="utf-8").strip() == fingerprint:

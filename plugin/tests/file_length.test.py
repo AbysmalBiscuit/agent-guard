@@ -126,6 +126,16 @@ block_lines = 8
 """
 
 
+def _skip_fingerprints(root):
+    """How many distinct Stop skip fingerprints this tree has written."""
+    return len(
+        {
+            path.read_text(encoding="utf-8")
+            for path in (root / "state").rglob("last-diff")
+        }
+    )
+
+
 def context_of(result):
     payload = json.loads(result.stdout)
     return payload["hookSpecificOutput"]["additionalContext"]
@@ -635,6 +645,41 @@ block_lines = 8
         self.assertIn("  zzz.py  ", report)
         self.assertIn("9 lines", report)
         self.assertEqual(specific["permissionDecision"], "deny")
+
+    def test_a_non_source_edit_does_not_move_the_skip_when_the_check_is_off(self):
+        """With the check off, a README edit is not a length change. Stop
+        writes the same skip fingerprint before and after that edit, and the
+        second Stop stays silent. A later source edit moves the fingerprint."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            (root / "seed.ts").write_text("export const seed = 1\n", encoding="utf-8")
+            (root / "README.md").write_text("base\n", encoding="utf-8")
+            commit_all(root, "base")
+            (root / "touched.ts").write_text("export const touched = 1\n", encoding="utf-8")
+            (root / "notes.txt").write_text("untracked\n", encoding="utf-8")
+            enable(root, OFF_UNSET)
+
+            first = stop_hook(root, session="skip-off")
+            saved = _skip_fingerprints(root)
+            (root / "README.md").write_text("base\nnon-source edit\n", encoding="utf-8")
+            (root / "config.toml").write_text("unrelated = true\n", encoding="utf-8")
+            second = stop_hook(root, session="skip-off-again")
+            after = _skip_fingerprints(root)
+            (root / "grown.ts").write_text("export const grown = 1\n", encoding="utf-8")
+            moved = stop_hook(root, session="skip-moved")
+            later = _skip_fingerprints(root)
+
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(first.stdout, "")
+        self.assertEqual(saved, 1)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(second.stdout, "")
+        self.assertEqual(after, saved)
+        self.assertEqual(moved.returncode, 0, moved.stderr)
+        self.assertEqual(moved.stdout, "")
+        self.assertEqual(later, 2)
 
 
 if __name__ == "__main__":
