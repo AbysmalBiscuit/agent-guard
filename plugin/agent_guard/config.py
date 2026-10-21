@@ -40,7 +40,8 @@ def load_config(roots):
     """Every root's config.toml, nearest last.
 
     Unknown keys are ignored. An unparsable file is skipped.
-    AGENT_GUARD_<KEY> overrides a file. A [python] table lands on python_<key>."""
+    AGENT_GUARD_<KEY> overrides a file. A [python] table lands on python_<key>.
+    [file_length] stays a table, and its scalar keys merge across roots."""
     cfg = {}
     origins = {}
     for root in roots:
@@ -57,6 +58,14 @@ def load_config(roots):
         python = data.get("python")
         if isinstance(python, dict):
             flat.update({f"python_{k}": v for k, v in python.items() if not isinstance(v, dict)})
+        length = data.get("file_length")
+        if isinstance(length, dict):
+            # Scalar keys merge across roots, as [python] does. limits is one
+            # list, so a nearer list replaces the farther one.
+            previous = cfg.get("file_length")
+            merged = dict(previous) if isinstance(previous, dict) else {}
+            merged.update(length)
+            flat["file_length"] = merged
         for key in flat:
             origins[key] = label
         cfg.update(flat)
@@ -146,6 +155,9 @@ class Settings:
         # Python changeset analyses. Off until a tree turns one on: each one
         # assumes that tree's thresholds and baseline, so firing unasked is noise.
         self.python = {name: PythonAnalysis(name, g, self.origins) for name in PYTHON_ANALYSES}
+        # File-length limits. Off until a tree turns them on: a tree that already
+        # holds long files would get a finding on every one the branch touches.
+        self.file_length = FileLength(cfg.get("file_length"), self.origins)
 
 
 def _bool(value, fallback):
@@ -174,6 +186,11 @@ def _str(value, fallback):
     return fallback if value is None else str(value)
 
 
+def _message(value, fallback):
+    text = fallback if value is None else str(value).strip()
+    return text or fallback
+
+
 LAYERS = ("rules", "checks", "tool_checks", "changeset")
 
 # jscpd's default min-tokens treats a short file list as empty.
@@ -186,6 +203,47 @@ JSCPD_MAX_SIZE = "100m"
 PYTHON_ANALYSES = tuple(tool.name for tool in EXTERNAL_TOOLS)
 PYTHON_DEFAULT_EXTENSIONS = {tool.name: tool.extensions for tool in EXTERNAL_TOOLS}
 PYTHON_DEFAULT_BASELINE = {tool.name: tool.baseline for tool in EXTERNAL_TOOLS}
+
+
+# What the check tells the agent to do. A tree replaces either sentence.
+FILE_LENGTH_WARN = "Split this file by responsibility, and move tests into focused files."
+FILE_LENGTH_BLOCK = "Split this file by responsibility, and move tests into focused files."
+
+# Used when the check is on and no tree names its own limits list.
+FILE_LENGTH_DEFAULT_LIMITS = ({"extensions": r"\.py$", "warn_lines": 500, "block_lines": 1000},)
+
+
+class FileLengthLimit:
+    """One extension regex, or one path or glob, with its two levels."""
+
+    def __init__(self, raw):
+        table = raw if isinstance(raw, dict) else {}
+        self.extensions = _str(table.get("extensions"), "")
+        self.pattern = _str(table.get("pattern"), "")
+        self.ext_re = _compile(self.extensions) if self.extensions else None
+        self.warn_lines = _int(table.get("warn_lines"), 0)
+        self.block_lines = _int(table.get("block_lines"), 0)
+        self.accept = _bool(table.get("accept"), False)
+        self.lines = _int(table.get("lines"), 0)
+
+
+class FileLength:
+    """The [file_length] table. Off until a tree sets enabled."""
+
+    def __init__(self, raw, origins):
+        table = raw if isinstance(raw, dict) else {}
+        self.enabled = _bool(table.get("enabled"), False)
+        self.warn_message = _message(table.get("warn_message"), FILE_LENGTH_WARN)
+        self.block_message = _message(table.get("block_message"), FILE_LENGTH_BLOCK)
+        limits = table.get("limits")
+        if isinstance(limits, list):
+            rows = limits
+        elif self.enabled:
+            rows = FILE_LENGTH_DEFAULT_LIMITS
+        else:
+            rows = []
+        self.limits = [FileLengthLimit(item) for item in rows]
+        self.origin = origins.get("file_length", "")
 
 
 class PythonAnalysis:

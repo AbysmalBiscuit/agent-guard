@@ -9,7 +9,7 @@ One hook package, `plugin/agent_guard`, handles every hook event:
 | `SessionStart` | `hooks/bootstrap-tools`, which installs ast-grep and fallow when missing. |
 | `PreToolUse` | `tool_checks/` scripts on the shell command or edit about to run, plus the `mandatory/` tier on shell tools. A check can advise, ask the human, or deny. |
 | `PostToolUse` (edits) | ast-grep `rules/` and `checks/` scripts on each edited file, reporting only the lines the branch introduced. Advisory. |
-| `Stop`, `SubagentStop` | A fallow audit of the changeset for duplication and over-extraction, plus `changeset_checks/` scripts. A tree can also turn on Python complexity and dead-code analyses. Advisory unless `block = true`. |
+| `Stop`, `SubagentStop` | A fallow audit of the changeset for duplication and over-extraction, plus `changeset_checks/` scripts. A tree can also turn on Python complexity and dead-code analyses, and a file-length check. Advisory unless `block = true`. |
 | `SessionEnd` | Removes the fallow audit cache of the session's project. |
 
 The hook always exits 0 and reports through the hook JSON contract, so a broken check goes quiet instead of wedging the session.
@@ -165,6 +165,38 @@ timeout = 20
 | `pyscn` | `false` | import cycles, through pyscn |
 | `pyscn_extensions` | `\.py$` | file types pyscn reads |
 | `timeout` | `20` | seconds one analysis may run |
+
+File length lives under `[file_length]`. It is off until a tree sets `enabled`. With the check on and no `limits` list, Python files (`\.py$`) warn above 500 lines and block above 1000. A project `limits` list replaces that row. `limits = []` drops it. Each `[[file_length.limits]]` row is one file type, selected by an extension regex, or one path or glob. A path row outranks a type row. A nearer `limits` list replaces a farther one. A file above `warn_lines` warns. A file above `block_lines` blocks when the global `block` setting is on, and still reports when that setting is off. `accept` records a file at `lines`: the check fails only when that file grows past the recorded size.
+
+```toml
+[file_length]
+enabled = true
+warn_message = "Split this file by responsibility, and move tests into focused files."
+block_message = "Split this file by responsibility, and move tests into focused files."
+
+[[file_length.limits]]
+extensions = '\.py$'
+warn_lines = 500
+block_lines = 1000
+
+[[file_length.limits]]
+pattern = "src/app.rs"
+accept = true
+lines = 4000
+```
+
+| Setting | Default | Effect |
+|---|---|---|
+| `enabled` | `false` | `true` compares each changed file with its limit |
+| `warn_message` | Split this file by responsibility, and move tests into focused files. | message for a file above `warn_lines` |
+| `block_message` | Split this file by responsibility, and move tests into focused files. | message for a file above `block_lines`, and for an accepted file that grew |
+| `limits` | Python files warn above 500 and block above 1000 when the check is on | rows that name a file type, a path, or a glob. A list replaces the default row. An empty list drops it |
+| `extensions` | unset | extension regex that selects the files a type row covers |
+| `pattern` | unset | path or glob a row covers. A path row outranks a type row |
+| `warn_lines` | unset | line count above which a file warns |
+| `block_lines` | unset | line count above which a file blocks |
+| `accept` | `false` | `true` accepts the file at `lines` and fails only when it grows |
+| `lines` | unset | recorded size of an accepted file. An accept row without `lines`, or with `lines` at zero or below, is ignored, and `doctor` reports it as a config error |
 
 complexipy, lizard, vulture and pyscn run through `uvx`, and jscpd through `bunx`, at the versions in `plugin/agent_guard/external.py`. A tree's own `.venv` supplies a tool when it has one. Nothing is installed into the project. A missing launcher, a missing tool, or a timeout leaves the audit silent. `doctor` lists which analyses are on, where each setting came from, and that silence.
 

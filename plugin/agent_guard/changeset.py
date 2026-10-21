@@ -718,12 +718,128 @@ def source_globs(settings):
     return SOURCE_GLOBS
 
 
-def changed_files(base, cwd, globs):
+def _line_count(path):
+    try:
+        return len(path.read_text(encoding="utf-8", errors="replace").splitlines())
+    except OSError:
+        return 0
+
+
+def find_file_length(changed, settings, cwd):
+    """Changed files past a warn or block limit this tree named."""
+    length = settings.file_length
+    if not length.enabled or not length.limits:
+        return "", False
+    lines = []
+    blocks = False
+    for rel in changed:
+        if not rel.strip() or settings.ignore_re.search(rel):
+            continue
+        limit = _length_limit(rel, length.limits)
+        if limit is None:
+            continue
+        count = _line_count(cwd / rel)
+        if limit.accept:
+            if limit.lines and count > limit.lines:
+                blocks = True
+                lines.append(
+                    f"  {rel}  {count} lines, accepted at {limit.lines}. {length.block_message}"
+                )
+            continue
+        if limit.block_lines and count > limit.block_lines:
+            blocks = True
+            lines.append(
+                f"  {rel}  {count} lines, past the block limit of {limit.block_lines}. "
+                f"{length.block_message}"
+            )
+        elif limit.warn_lines and count > limit.warn_lines:
+            lines.append(
+                f"  {rel}  {count} lines, past the warn limit of {limit.warn_lines}. "
+                f"{length.warn_message}"
+            )
+    return "\n".join(lines[: settings.max_findings]), blocks
+
+
+def _length_pattern_match(rel, pattern):
+    """A git pathspec over the whole relative path. `**` crosses segments."""
+    parts = pattern.replace("\\", "/").split("/")
+    expr = r"\A"
+    last = len(parts) - 1
+    for index, part in enumerate(parts):
+        if part == "**":
+            if index == 0 and last > 0:
+                expr += r"(?:.*/)?"
+            elif index == last and index > 0:
+                expr += r"/.*"
+            elif index == 0:
+                expr += r".*"
+            else:
+                expr += r"/(?:.*/)?"
+            continue
+        if index and parts[index - 1] != "**":
+            expr += r"/"
+        expr += _length_segment(part)
+    return re.fullmatch(expr, rel.replace("\\", "/")) is not None
+
+
+def _length_segment(part):
+    out = []
+    for char in part:
+        if char == "*":
+            out.append(r"[^/]*")
+        elif char == "?":
+            out.append(r"[^/]")
+        else:
+            out.append(re.escape(char))
+    return "".join(out)
+
+
+def _length_files(base, cwd, settings):
+    """Changed files the length check reads, before the listing cap."""
+    if not settings.file_length.enabled:
+        return []
+    limits = settings.file_length.limits
+    return changed_files(
+        base,
+        cwd,
+        (),
+        keep=lambda rel: bool(rel.strip()) and _length_limit(rel, limits) is not None,
+    )
+
+
+def _usable_limits(limits):
+    """Rows the check can apply. An accept row needs a recorded size."""
+    return [limit for limit in limits if not _accept_without_lines(limit)]
+
+
+def _accept_without_lines(limit):
+    return limit.accept and limit.lines <= 0
+
+
+def _length_limit(rel, limits):
+    """A named path or glob outranks an extension regex.
+
+    The first matching path wins, then the first matching extension. A path
+    limit listed after a broad extension still applies to that path."""
+    usable = _usable_limits(limits)
+    named = [limit for limit in usable if limit.pattern]
+    typed = [limit for limit in usable if limit.ext_re is not None]
+    for limit in named:
+        if _length_pattern_match(rel, limit.pattern):
+            return limit
+    for limit in typed:
+        if limit.ext_re.search(rel):
+            return limit
+    return None
+
+
+def changed_files(base, cwd, globs, keep=None):
     """What the branch touched, including what git does not track yet. A file an
     agent wrote and has not committed never appears in `git diff`, and it is the
     likeliest place for a copy of something that already exists: written from
     scratch by someone who did not find the original. --exclude-standard keeps
-    ignored trees such as node_modules out."""
+    ignored trees such as node_modules out. `keep` drops a path before the
+    200-file cap."""
     listings = (
         ["git", "diff", "--name-only", base, "--", *globs],
         ["git", "ls-files", "--others", "--exclude-standard", "--", *globs],
@@ -732,10 +848,13 @@ def changed_files(base, cwd, globs):
     for cmd in listings:
         for line in run(cmd, cwd=cwd).splitlines():
             rel = line.strip()
-            if rel and rel not in seen:
-                seen.add(rel)
-                out.append(rel)
-    return out[:200]
+            if not rel or rel in seen or (keep is not None and not keep(rel)):
+                continue
+            seen.add(rel)
+            out.append(rel)
+            if len(out) == 200:
+                return out
+    return out
 
 
 def changeset_fingerprint(base, changed, cwd, globs):
@@ -765,6 +884,8 @@ def check_changeset(session, agent_type, roots, settings, cwd):
     base = git_base(settings, cwd)
     globs = source_globs(settings)
     changed = changed_files(base, cwd, globs)
+    length_changed = _length_files(base, cwd, settings)
+    changed = list(dict.fromkeys([*changed, *length_changed]))
     # Before the source-glob gate: the duplication audit reads TS and JS, but a
     # changeset-check speaks for whatever files its own rule covers, and a
     # branch that touched only markdown or shell still has to answer for them.
@@ -827,19 +948,25 @@ def check_changeset(session, agent_type, roots, settings, cwd):
         sections.append(
             f"{who} introduced findings the tree asked this audit to report:\n\n{python}\n"
         )
+    length_text, length_blocks = find_file_length(length_changed, settings, cwd)
+    if length_text:
+        sections.append(
+            f"{who} changed files past a length limit this tree set:\n\n{length_text}\n"
+        )
     if not sections:
         return SILENT
     context = "\n".join(sections)
 
     blocks_file = sdir / "blocks"
     blocks = _int(blocks_file.read_text(encoding="utf-8") if blocks_file.is_file() else "0", 0)
-    if settings.block and (violations or dupes) and blocks < settings.max_blocks:
+    if settings.block and (violations or dupes or length_blocks) and blocks < settings.max_blocks:
         with contextlib.suppress(OSError):
             blocks_file.write_text(str(blocks + 1), encoding="utf-8")
-        reason = (
-            "agent-guard: this changeset violates a rule of the tree it is in"
-            if violations
-            else "agent-guard: duplication introduced by this changeset is unresolved"
-        )
+        if length_blocks:
+            reason = f"agent-guard: {settings.file_length.block_message}"
+        elif violations:
+            reason = "agent-guard: this changeset violates a rule of the tree it is in"
+        else:
+            reason = "agent-guard: duplication introduced by this changeset is unresolved"
         return denied(context, reason)
     return advised(context)
