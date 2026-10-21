@@ -148,8 +148,8 @@ class AuditCommandTests(unittest.TestCase):
 
     def test_audit_on_a_clean_branch_exits_zero(self):
         """A clean opted-in branch prints nothing and exits 0. A blank path,
-        a missing path, and a directory that is not a git checkout exit
-        non-zero and name the problem."""
+        a missing path, and a directory that is not a git checkout exit 3
+        and name the problem."""
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "home").mkdir()
@@ -171,20 +171,21 @@ class AuditCommandTests(unittest.TestCase):
 
         self.assertEqual(clean.returncode, 0, clean.stderr)
         self.assertEqual(clean.stdout, "")
-        self.assertNotEqual(blank.returncode, 0)
+        self.assertEqual(blank.returncode, 3, blank.stderr)
         self.assertIn("path", blank.stderr.lower())
-        self.assertNotEqual(missing.returncode, 0)
+        self.assertEqual(missing.returncode, 3, missing.stderr)
         self.assertIn("path", missing.stderr.lower())
-        self.assertEqual(not_git.returncode, 2, not_git.stderr)
+        self.assertEqual(not_git.returncode, 3, not_git.stderr)
         self.assertEqual(not_git.stdout, "")
         self.assertIn(f"agent-guard: not a git checkout: {plain}", not_git.stderr)
-        self.assertEqual(no_git.returncode, 2, no_git.stderr)
+        self.assertEqual(no_git.returncode, 3, no_git.stderr)
         self.assertEqual(no_git.stdout, "")
         self.assertIn(f"agent-guard: not a git checkout: {root}", no_git.stderr)
 
     def test_audit_exits_2_when_a_finding_would_block(self):
         """A changeset check finding blocks when the tree sets `block`. The
-        command prints the finding and exits 2. A missing ref names the ref."""
+        command prints the finding and exits 2. A missing ref exits 3 and
+        names the ref."""
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "home").mkdir()
@@ -201,7 +202,7 @@ class AuditCommandTests(unittest.TestCase):
 
         self.assertEqual(blocked.returncode, 2, blocked.stderr)
         self.assertIn("project violation", blocked.stdout)
-        self.assertEqual(missing_ref.returncode, 2)
+        self.assertEqual(missing_ref.returncode, 3, missing_ref.stderr)
         self.assertIn("does-not-exist", missing_ref.stderr)
 
 

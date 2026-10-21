@@ -119,10 +119,10 @@ def run_audit(cwd, base, err):
     """Print the Stop audit as plain text. `base` replaces the configured base."""
     if not cwd.is_dir():
         print(f"agent-guard: path is not a directory: {cwd}", file=err)
-        return 2
+        return 3
     if not have("git") or not succeeds(["git", "rev-parse", "--git-dir"], cwd=cwd):
         print(f"agent-guard: not a git checkout: {cwd}", file=err)
-        return 2
+        return 3
     roots = discover_roots(cwd)
     cfg = load_config(roots)
     _state.set_log_level(cfg)
@@ -132,7 +132,7 @@ def run_audit(cwd, base, err):
     resolved = git_base(settings, cwd)
     if base and not _resolves(base, cwd):
         print(f"agent-guard: --base does not resolve: {base}", file=err)
-        return 2
+        return 3
     decision = audit_changeset(roots, settings, cwd, resolved)
     if decision.context:
         print(decision.context)

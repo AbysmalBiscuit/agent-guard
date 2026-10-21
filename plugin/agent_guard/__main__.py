@@ -50,7 +50,7 @@ def run_audit_args(argv):
     base, path, error = audit_args(argv)
     if error:
         print(error, file=sys.stderr)
-        return 2
+        return 3
     cwd = Path.cwd() if not path else Path(path)
     return run_audit(cwd, base, sys.stderr)
 

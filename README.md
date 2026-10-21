@@ -92,7 +92,7 @@ python3 <plugin root>/agent_guard audit [--base REF] [PATH]
 
 `<plugin root>` is the installed copy, `~/.claude/plugins/cache/agent-guard/agent-guard/<version>/` for Claude Code or `~/.codex/plugins/cache/agent-guard/agent-guard/<version>/` for Codex. For Grok Build, `grok plugin details agent-guard` prints where it is installed. `doctor` lists the roots it found, the rules and checks each one holds, the effective settings, and which optional tools are on `PATH`.
 
-`audit` runs the same changeset audit as Stop. `PATH` is the checkout, and the default is the current directory. `--base` names the revision to compare with, and the default is the base Stop uses. The command uses no session state, so a second run prints the same findings. It prints findings as plain text. It exits 0 when there are none, 1 when a finding would warn, and 2 when a finding would block. Each tool keeps its own timeout.
+`audit` runs the same changeset audit as Stop. `PATH` is the checkout, and the default is the current directory. `--base` names the revision to compare with, and the default is the base Stop uses. The command uses no session state, so a second run prints the same findings. It prints findings as plain text. It exits 0 when there are none, 1 when a finding would warn, and 2 when a finding would block. A usage or checkout error exits 3. Each tool keeps its own timeout.
 
 ## Configuration
 
