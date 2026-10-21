@@ -87,6 +87,10 @@ def doctor(cwd):
                 f"{analysis.min_confidence}  from "
                 f"{settings.origins.get('python_vulture_min_confidence', 'default')}"
             )
+    length = settings.file_length
+    state = "on" if length.enabled else "off"
+    print(f"  file length      : {state}  from {length.origin or 'default'}")
+    print(f"    limits         : {len(length.limits)}")
     problem = python_tool_problem(cwd)
     if problem:
         print(f"  python tools : {problem}")

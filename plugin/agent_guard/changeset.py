@@ -710,12 +710,84 @@ def find_python(changed, settings, cwd, base, budget, seen_file=None):
     return "\n".join(sections)
 
 
+def _length_globs(settings):
+    """Pathspecs for the file types a tree asked the length check to read."""
+    globs = []
+    for limit in settings.file_length.limits:
+        if limit.pattern:
+            globs.append(limit.pattern)
+            continue
+        match = re.fullmatch(r"\\\.([A-Za-z0-9]+)\$$", limit.extensions)
+        if match:
+            globs.append(f"*.{match.group(1)}")
+    return tuple(globs)
+
+
 def source_globs(settings):
     """File types the changeset listing reads. Python globs join only when a
-    tree turned a Python analysis on, so an opted-out tree keeps its old list."""
+    tree turned a Python analysis on, so an opted-out tree keeps its old list.
+    Length globs join only when that check is on."""
+    globs = SOURCE_GLOBS
     if any(analysis.enabled for analysis in settings.python.values()):
-        return (*SOURCE_GLOBS, *PYTHON_GLOBS)
-    return SOURCE_GLOBS
+        globs = (*globs, *PYTHON_GLOBS)
+    if settings.file_length.enabled:
+        globs = (*globs, *_length_globs(settings))
+    return globs
+
+
+def _line_count(path):
+    try:
+        return len(path.read_text(encoding="utf-8", errors="replace").splitlines())
+    except OSError:
+        return 0
+
+
+def find_file_length(changed, settings, cwd):
+    """Changed files past a warn or block limit this tree named."""
+    length = settings.file_length
+    if not length.enabled or not length.limits:
+        return "", False
+    lines = []
+    blocks = False
+    for rel in changed:
+        if not rel.strip() or settings.ignore_re.search(rel):
+            continue
+        limit = _length_limit(rel, length.limits)
+        if limit is None:
+            continue
+        count = _line_count(cwd / rel)
+        if limit.accept:
+            if limit.lines and count > limit.lines:
+                blocks = True
+                lines.append(
+                    f"  {rel}  {count} lines, accepted at {limit.lines}. {length.block_message}"
+                )
+            continue
+        if limit.block and count > limit.block:
+            blocks = True
+            lines.append(
+                f"  {rel}  {count} lines, past the block limit of {limit.block}. "
+                f"{length.block_message}"
+            )
+        elif limit.warn and count > limit.warn:
+            lines.append(f"  {rel}  {count} lines, past the warn limit of {limit.warn}. {length.warn_message}")
+    return "\n".join(lines[: settings.max_findings]), blocks
+
+
+def _length_limit(rel, limits):
+    """A named path or glob outranks an extension regex.
+
+    The first matching path wins, then the first matching extension. A path
+    limit listed after a broad extension still applies to that path."""
+    named = [limit for limit in limits if limit.pattern]
+    typed = [limit for limit in limits if limit.ext_re is not None]
+    for limit in named:
+        if Path(rel).match(limit.pattern):
+            return limit
+    for limit in typed:
+        if limit.ext_re.search(rel):
+            return limit
+    return None
 
 
 def changed_files(base, cwd, globs):
@@ -827,19 +899,25 @@ def check_changeset(session, agent_type, roots, settings, cwd):
         sections.append(
             f"{who} introduced findings the tree asked this audit to report:\n\n{python}\n"
         )
+    length_text, length_blocks = find_file_length(changed, settings, cwd)
+    if length_text:
+        sections.append(
+            f"{who} changed files past a length limit this tree set:\n\n{length_text}\n"
+        )
     if not sections:
         return SILENT
     context = "\n".join(sections)
 
     blocks_file = sdir / "blocks"
     blocks = _int(blocks_file.read_text(encoding="utf-8") if blocks_file.is_file() else "0", 0)
-    if settings.block and (violations or dupes) and blocks < settings.max_blocks:
+    if settings.block and (violations or dupes or length_blocks) and blocks < settings.max_blocks:
         with contextlib.suppress(OSError):
             blocks_file.write_text(str(blocks + 1), encoding="utf-8")
-        reason = (
-            "agent-guard: this changeset violates a rule of the tree it is in"
-            if violations
-            else "agent-guard: duplication introduced by this changeset is unresolved"
-        )
+        if length_blocks:
+            reason = f"agent-guard: {settings.file_length.block_message}"
+        elif violations:
+            reason = "agent-guard: this changeset violates a rule of the tree it is in"
+        else:
+            reason = "agent-guard: duplication introduced by this changeset is unresolved"
         return denied(context, reason)
     return advised(context)
