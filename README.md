@@ -87,9 +87,12 @@ Then check what the hook resolves from inside the tree:
 
 ```sh
 python3 <plugin root>/agent_guard doctor
+python3 <plugin root>/agent_guard audit [--base REF] [PATH]
 ```
 
 `<plugin root>` is the installed copy, `~/.claude/plugins/cache/agent-guard/agent-guard/<version>/` for Claude Code or `~/.codex/plugins/cache/agent-guard/agent-guard/<version>/` for Codex. For Grok Build, `grok plugin details agent-guard` prints where it is installed. `doctor` lists the roots it found, the rules and checks each one holds, the effective settings, and which optional tools are on `PATH`.
+
+`audit` runs the same changeset audit as Stop. `PATH` is the checkout, and the default is the current directory. `--base` names the revision to compare with, and the default is the base Stop uses. The command uses no session state, so a second run prints the same findings. It prints findings as plain text. It exits 0 when there are none, 1 when a finding would warn, and 2 when a finding would block. Each tool keeps its own timeout.
 
 ## Configuration
 
@@ -222,6 +225,7 @@ Each bundled script's docstring explains what it enforces and why, so read one a
 ## Troubleshooting
 
 - Run `doctor` from the directory in question to see which roots, rules, and tools apply there.
+- Run `audit` from that directory to print the Stop findings for the current branch.
 - Raise `log` to `2` to record every check's verdict in `~/agent-guard.log`, or to `3` to include the command text.
 - Set `AGENT_GUARD_TOOL_CHECKS=false` for one session when a PreToolUse check blocks work it should allow, then fix the check.
 

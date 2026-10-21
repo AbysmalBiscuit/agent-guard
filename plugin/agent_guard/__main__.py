@@ -13,7 +13,46 @@ sys.path[:1] = [str(_root / "scripts"), str(_root)]
 
 from agent_guard import _state  # noqa: E402
 from agent_guard.adapters import HARNESSES  # noqa: E402
-from agent_guard.dispatch import decide, run_doctor  # noqa: E402
+from agent_guard.dispatch import decide, run_audit, run_doctor  # noqa: E402
+
+
+def audit_args(argv):
+    """`--base REF` and one optional path. A blank path is an error."""
+    base = ""
+    path = ""
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--base":
+            if index + 1 >= len(argv) or not argv[index + 1].strip():
+                return None, None, "agent-guard: --base needs a ref"
+            base = argv[index + 1]
+            index += 2
+            continue
+        if arg.startswith("--base="):
+            base = arg.split("=", 1)[1]
+            if not base.strip():
+                return None, None, "agent-guard: --base needs a ref"
+            index += 1
+            continue
+        if arg.startswith("--"):
+            return None, None, f"agent-guard: unknown option {arg}"
+        if path:
+            return None, None, "agent-guard: audit takes one path"
+        if not arg.strip():
+            return None, None, "agent-guard: path is empty"
+        path = arg
+        index += 1
+    return base, path, ""
+
+
+def run_audit_args(argv):
+    base, path, error = audit_args(argv)
+    if error:
+        print(error, file=sys.stderr)
+        return 2
+    cwd = Path.cwd() if not path else Path(path)
+    return run_audit(cwd, base, sys.stderr)
 
 
 def harness_name(argv):
@@ -29,6 +68,8 @@ def main(argv=None, stdin=None):
     stdin = sys.stdin if stdin is None else stdin
     atexit.register(_state.release_log)
     name = harness_name(argv)
+    if argv[:1] == ["audit"]:
+        return run_audit_args(argv[1:])
     positional = [arg for arg in argv if not arg.startswith("--")]
     if positional[:1] == ["doctor"]:
         run_doctor(Path.cwd())

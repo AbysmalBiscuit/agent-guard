@@ -5,13 +5,13 @@ import sys
 from pathlib import Path
 
 from . import _state
-from .changeset import check_changeset
+from .changeset import audit_changeset, check_changeset
 from .config import LAYERS, Settings, discover_roots, load_config
-from .contract import SILENT, Decision
+from .contract import SILENT, Decision, git_base
 from .doctor import doctor
 from .file_checks import check_file, check_tool, run_mandatory
 from .paths import SCRIPTS_DIR
-from .process import run
+from .process import run, succeeds
 
 
 def decide(payload):
@@ -100,3 +100,37 @@ def run_doctor(cwd):
     """Print what a checkout resolves to. The process entry owns the exit."""
     doctor(cwd)
     return Decision()
+
+
+def _resolves(ref, cwd):
+    return succeeds(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], cwd=cwd)
+
+
+def audit_exit(decision):
+    """0 with no finding, 1 when a finding would warn, 2 when one would block."""
+    if decision.permission == "deny":
+        return 2
+    if decision.context:
+        return 1
+    return 0
+
+
+def run_audit(cwd, base, err):
+    """Print the Stop audit as plain text. `base` replaces the configured base."""
+    if not cwd.is_dir():
+        print(f"agent-guard: path is not a directory: {cwd}", file=err)
+        return 2
+    roots = discover_roots(cwd)
+    cfg = load_config(roots)
+    _state.set_log_level(cfg)
+    settings = Settings(cfg)
+    if base:
+        settings.base_override = base
+    resolved = git_base(settings, cwd)
+    if base and not _resolves(base, cwd):
+        print(f"agent-guard: --base does not resolve: {base}", file=err)
+        return 2
+    decision = audit_changeset(roots, settings, cwd, resolved)
+    if decision.context:
+        print(decision.context)
+    return audit_exit(decision)
