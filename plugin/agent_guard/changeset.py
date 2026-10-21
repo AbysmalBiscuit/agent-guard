@@ -30,6 +30,7 @@ from .process import (
     run_bytes,
     succeeds,
 )
+from .tools import pinned_binary
 
 
 def find_duplication(changeset, slot):
@@ -38,10 +39,11 @@ def find_duplication(changeset, slot):
     del slot
     settings = changeset.settings
     cwd = changeset.cwd
-    if not settings.use_fallow or not have("fallow"):
+    fallow = pinned_binary("fallow")
+    if not settings.use_fallow or fallow is None:
         return AnalysisResult()
     raw = run(
-        ["fallow", "audit", "--base", changeset.base, "--format", "json"],
+        [fallow, "audit", "--base", changeset.base, "--format", "json"],
         timeout=settings.fallow_timeout,
         cwd=cwd,
     )

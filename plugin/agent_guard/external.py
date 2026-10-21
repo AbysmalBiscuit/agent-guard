@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 from .process import record_python_problem
+from .tools import TOOL_IDS, pinned_binary, tool_version
 
 
 class Launcher:
@@ -50,11 +51,13 @@ class ExternalTool:
 
 
 EXTERNAL_TOOLS = (
-    ExternalTool("complexipy", "8.0.1", UVX, r"\.py$", "complexipy-snapshot.json"),
-    ExternalTool("lizard", "1.24.1", UVX, r"\.(py|ts|tsx)$", "whitelizard.txt"),
-    ExternalTool("vulture", "2.16", UVX, r"\.py$", "vulture-whitelist.py"),
-    ExternalTool("jscpd", "5.4.2", BUNX, r"\.py$"),
-    ExternalTool("pyscn", "1.32.5", UVX, r"\.py$"),
+    ExternalTool(
+        "complexipy", tool_version("complexipy"), UVX, r"\.py$", "complexipy-snapshot.json"
+    ),
+    ExternalTool("lizard", tool_version("lizard"), UVX, r"\.(py|ts|tsx)$", "whitelizard.txt"),
+    ExternalTool("vulture", tool_version("vulture"), UVX, r"\.py$", "vulture-whitelist.py"),
+    ExternalTool("jscpd", tool_version("jscpd"), BUNX, r"\.py$"),
+    ExternalTool("pyscn", tool_version("pyscn"), UVX, r"\.py$"),
 )
 
 _BY_NAME = {tool.name: tool for tool in EXTERNAL_TOOLS}
@@ -75,6 +78,27 @@ def _launcher_path(tool):
         path = Path(override)
         return str(path) if path.is_file() and os.access(path, os.X_OK) else None
     return shutil.which(tool.launcher.name)
+
+
+def tool_problem(tool):
+    """The doctor line for one tool the audit cannot start."""
+    name = tool.name
+    if _launcher_override(tool.launcher) is not None or name not in TOOL_IDS:
+        return f"{name}: {tool.launcher.label} is not on PATH, so the analysis stayed silent"
+    if shutil.which("mise") is None:
+        return f"{name}: mise is not on PATH, so the analysis stayed silent"
+    pin = tool_version(name) or "unset"
+    return f"{name}: pin {pin} is not installed, so the analysis stayed silent"
+
+
+def tool_binary(tool):
+    """The binary the audit runs for one registry tool.
+
+    The mise pin wins over a copy earlier on PATH. A launcher override wins
+    over the pin, so a test can point the launcher at a stand-in."""
+    if _launcher_override(tool.launcher) is not None:
+        return _launcher_path(tool)
+    return pinned_binary(tool.name)
 
 
 def _own_venv(tool, cwd):
@@ -98,12 +122,12 @@ def tool_argv(name, cwd):
     own = _own_venv(tool, cwd)
     if own is not None:
         return [str(own)]
-    binary = _launcher_path(tool)
+    binary = tool_binary(tool)
     if binary is None:
-        record_python_problem(
-            f"{name}: {launcher.label} is not on PATH, so the analysis stayed silent", cwd
-        )
+        record_python_problem(tool_problem(tool), cwd)
         return None
+    if _launcher_override(launcher) is None and pinned_binary(name) == binary:
+        return [binary]
     return launcher.command(binary, tool)
 
 
@@ -147,9 +171,9 @@ def missing_launcher_notes(enabled, cwd):
         by_launcher.setdefault(tool.launcher.name, []).append(tool)
     lines = []
     for tools in by_launcher.values():
-        launcher = tools[0].launcher
-        if _launcher_path(tools[0]) is not None:
+        if tool_binary(tools[0]) is not None:
             continue
         names = ", ".join(tool.name for tool in tools)
-        lines.append(f"{launcher.label} is not on PATH, so {names} stays silent")
+        reason = tool_problem(tools[0]).split(", so ", 1)[0]
+        lines.append(f"{reason}, so {names} stays silent")
     return lines

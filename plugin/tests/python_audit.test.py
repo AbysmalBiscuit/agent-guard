@@ -277,12 +277,13 @@ class PythonAuditTests(unittest.TestCase):
             stop(
                 first,
                 checkout,
-                env_extra={"PATH": "/usr/bin:/bin"},
+                env_extra={"PATH": "/usr/bin:/bin", "MISE_LIZARD": str(root / "no-pin")},
                 state_home=state,
             )
             stop(second, checkout, state_home=state)
             reported = doctor(first, checkout, state_home=state)
-        self.assertIn("uv is not on PATH", reported)
+        self.assertIn("pin", reported)
+        self.assertIn("stayed silent", reported)
 
     def test_a_new_file_committed_on_the_branch_still_reports(self):
         """A file the merge-base never had, committed on the branch, is still
@@ -404,7 +405,7 @@ class PythonAuditTests(unittest.TestCase):
         self.assertIn("stays silent", without_uv)
         bunx_checkout = checkout + "jscpd = true\n"
         without_bunx = doctor_without_bunx(project, bunx_checkout)
-        self.assertIn("bunx is not on PATH, so jscpd stays silent", without_bunx)
+        self.assertIn("is not on PATH, so jscpd stays silent", without_bunx)
 
     def test_a_blank_extension_and_a_failing_tool_stay_silent(self):
         """An empty extension matches nothing. A tool that exits non-zero on a
@@ -471,11 +472,11 @@ class PythonAuditTests(unittest.TestCase):
             out = stop(
                 project,
                 checkout,
-                env_extra={"PATH": "/usr/bin:/bin"},
+                env_extra={"PATH": "/usr/bin:/bin", "MISE_COMPLEXIPY": str(project / "no-pin")},
             )
             reported = doctor(project, checkout)
         self.assertEqual(out, "")
-        self.assertIn("uv is not on PATH", reported)
+        self.assertIn("pin", reported)
         self.assertIn("stayed silent", reported)
 
     def test_a_clean_stop_clears_a_recorded_python_tool_problem(self):
@@ -490,7 +491,7 @@ class PythonAuditTests(unittest.TestCase):
             blocked = stop(
                 project,
                 checkout,
-                env_extra={"PATH": "/usr/bin:/bin"},
+                env_extra={"PATH": "/usr/bin:/bin", "MISE_LIZARD": str(project / "no-pin")},
             )
             stale = doctor(project, checkout)
             # A repeat of the same diff skips the tools, so add a file the
@@ -499,10 +500,11 @@ class PythonAuditTests(unittest.TestCase):
             clean = stop(project, checkout)
             reported = doctor(project, checkout)
         self.assertEqual(blocked, "")
-        self.assertIn("uv is not on PATH", stale)
+        self.assertIn("pin", stale)
+        self.assertIn("stayed silent", stale)
         self.assertEqual(clean, "")
         self.assertNotIn("python tools", reported)
-        self.assertNotIn("uv is not on PATH", reported)
+        self.assertNotIn("stayed silent", reported)
 
     def test_an_empty_changeset_clears_a_recorded_python_tool_problem(self):
         """A Stop with no changed file still drops a note an earlier Stop left,
@@ -516,7 +518,7 @@ class PythonAuditTests(unittest.TestCase):
             blocked = stop(
                 project,
                 checkout,
-                env_extra={"PATH": "/usr/bin:/bin"},
+                env_extra={"PATH": "/usr/bin:/bin", "MISE_LIZARD": str(project / "no-pin")},
             )
             (project / "work.py").unlink()
             empty = stop(project, checkout)
@@ -526,20 +528,21 @@ class PythonAuditTests(unittest.TestCase):
         self.assertNotIn("python tools", reported)
 
     def test_a_tool_uv_cannot_fetch_stays_silent_and_doctor_shows_it(self):
-        """uv is on PATH, but the pinned tool cannot be fetched. Stop prints
-        nothing. The next doctor names that the tool produced no report."""
+        """The pinned tool starts and writes no report. Stop prints nothing.
+        The next doctor names that the tool produced no report."""
         with tempfile.TemporaryDirectory() as directory:
             project = pathlib.Path(directory) / "project"
             project.mkdir()
-            cache = pathlib.Path(directory) / "uv-cache"
-            cache.mkdir()
+            stub = project / "complexipy"
+            stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            stub.chmod(0o755)
             commit(project, "seed.py", CALM)
             (project / "work.py").write_text(NOISY, encoding="utf-8")
             checkout = tree_config("complexipy")
             out = stop(
                 project,
                 checkout,
-                env_extra={"UV_OFFLINE": "1", "UV_CACHE_DIR": str(cache)},
+                env_extra={"MISE_COMPLEXIPY": str(stub)},
             )
             reported = doctor(project, checkout)
         self.assertEqual(out, "")

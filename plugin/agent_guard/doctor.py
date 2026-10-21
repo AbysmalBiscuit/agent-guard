@@ -8,6 +8,7 @@ from .config import Settings, discover_roots, load_config, sgconfig_for
 from .external import EXTERNAL_TOOLS, missing_launcher_notes
 from .paths import CONFIG_NAME
 from .process import have, python_tool_problem
+from .tools import TOOL_IDS, pinned_binary, tool_version
 
 
 def doctor(cwd):
@@ -47,14 +48,26 @@ def doctor(cwd):
         print(f"      changeset_checks: {diff_checks}")
     names = ", ".join(check.__module__.rsplit(".", 1)[-1] for check in MANDATORY_CHECKS)
     print(f"  mandatory  : {names}")
+    mise = shutil.which("mise")
+    print(f"  {'mise':<10} : {mise or 'not installed'}")
+    if mise is None:
+        print("  mise missing     -> pinned tools stay silent; install mise, then run install.sh")
     for tool in ("ast-grep", "fallow", "git", "rg"):
-        print(f"  {tool:<10} : {shutil.which(tool) or 'not installed'}")
+        if tool in TOOL_IDS:
+            pinned = tool_version(tool)
+            binary = pinned_binary(tool)
+            where = binary or "not installed"
+            print(f"  {tool:<10} : {where}  pin {pinned or 'unset'}")
+            if binary is None:
+                print(f"  {tool} missing -> the audit stays silent for it")
+        else:
+            print(f"  {tool:<10} : {shutil.which(tool) or 'not installed'}")
     print()
     print(f"  tool_checks      : {'on' if settings.tool_checks else 'off'}")
     print("  mandatory checks : always on; no config key or root reaches them")
-    if not have("ast-grep"):
+    if pinned_binary("ast-grep") is None and not have("ast-grep"):
         print("  ast-grep missing -> per-file rules skipped (checks/ still run)")
-    if not have("fallow"):
+    if pinned_binary("fallow") is None:
         print("  fallow missing   -> changeset duplication check skipped")
     if not have("rg"):
         print("  rg missing       -> over-extraction check skipped")

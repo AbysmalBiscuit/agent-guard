@@ -26,6 +26,7 @@ from .contract import (
 )
 from .paths import _PLUGIN_ROOT, CONFIG_DIR
 from .process import have, run, run_full
+from .tools import pinned_binary
 
 # A check that outruns its bound is silence. A file check reads a whole file,
 # so it keeps a longer bound than a tool check.
@@ -316,7 +317,14 @@ def scan_file(path, roots, cwd, layers):
             if config is None:
                 continue
             raw = run(
-                ["ast-grep", "scan", "-c", str(config), "--json=compact", path],
+                [
+                    pinned_binary("ast-grep") or "ast-grep",
+                    "scan",
+                    "-c",
+                    str(config),
+                    "--json=compact",
+                    path,
+                ],
                 timeout=15,
                 cwd=cwd,
             )
