@@ -54,7 +54,7 @@ def decide(payload):
     # Ahead of discovery and the config, so no root and no setting is between
     # this tier and the call it refuses. A config.toml that will not even parse
     # cannot take it out either.
-    mandatory = run_mandatory(payload, cwd) if event == "PreToolUse" else SILENT
+    mandatory = run_mandatory(payload) if event == "PreToolUse" else SILENT
     # A mandatory finding ends the run. The call never reaches a later tier.
     if mandatory.context or mandatory.permission != "allow":
         return mandatory

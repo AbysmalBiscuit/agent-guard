@@ -25,17 +25,16 @@ from .contract import (
 from .process import have, run, run_full
 
 
-def run_checks(path, roots, cwd, source=None):
+def run_checks(path, roots, cwd):
     """Package file checks, then a root's checks/ scripts.
 
     A script prints `  <file>:<line>  [<rule-id>] <message>` and runs in its own
     interpreter, because the executable bit does not survive a clone."""
     out = []
-    if source is None:
-        try:
-            source = Path(path).read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            source = ""
+    try:
+        source = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        source = ""
     for check in FILE_CHECKS:
         try:
             lines = check(source, path)
@@ -78,6 +77,14 @@ def run_changeset_checks(base, roots, cwd):
     return "\n\n".join(out)
 
 
+def _failed(name):
+    """The text a raised check leaves when it printed nothing."""
+    return (
+        f"agent-guard: the check {name} failed to run, so the call it protects "
+        "is refused. Fix the check; Edit and Write are not gated by this hook."
+    )
+
+
 def _merge(named):
     """One decision from named check results. A denial outranks an ask."""
     advice, asks, denials = [], [], []
@@ -100,12 +107,7 @@ def _merge(named):
             reason=text.splitlines()[0] if text else None,
         )
         if verdict == "deny":
-            denials.append(
-                text
-                or f"agent-guard: the check {name} failed to run, so the call it "
-                "protects is refused. Fix the check; Edit and Write are not "
-                "gated by this hook."
-            )
+            denials.append(text or _failed(name))
         elif verdict == "ask":
             asks.append(text)
         elif text:
@@ -119,20 +121,20 @@ def _merge(named):
     return SILENT
 
 
-def run_mandatory(payload, cwd):
+def run_mandatory(payload):
     """Shell-tool checks no config can switch off.
 
     A raised check is a denial naming it. Silence would hide a broken security
     check, and file tools stay ungated so the check can still be edited."""
-    del cwd
     if (payload.get("tool_name") or "") not in SHELL_TOOLS:
         return SILENT
     named = []
     for check in MANDATORY_CHECKS:
+        name = check.__module__.rsplit(".", 1)[-1]
         try:
-            named.append((check.__module__.rsplit(".", 1)[-1], check(payload)))
+            named.append((name, check(payload)))
         except Exception:
-            named.append((check.__module__.rsplit(".", 1)[-1], denied("", "")))
+            named.append((name, denied(_failed(name), _failed(name))))
     merged = _merge(named)
     if merged.permission != "allow" or merged.context:
         _state.log(
@@ -172,11 +174,12 @@ def check_tool(payload, roots, settings, cwd):
     tool = payload.get("tool_name") or ""
     named = []
     for check in TOOL_CHECKS:
+        name = check.__module__.rsplit(".", 1)[-1]
         try:
-            named.append((check.__module__.rsplit(".", 1)[-1], check(payload)))
+            named.append((name, check(payload)))
         except Exception:
             # A broken built-in degrades to silence rather than denying work.
-            _state.log(2, "check", script=check.__module__, verdict="silent", reason="raised")
+            _state.log(2, "check", script=name, verdict="silent", reason="raised")
             continue
     for root in roots:
         checks = root / "tool_checks"
@@ -201,7 +204,6 @@ def check_tool(payload, roots, settings, cwd):
     return merged
 
 
-_FINDING_LINE = FINDING_LINE
 _INFO_FINDING = re.compile(r"  \[info:")
 _ERROR_FINDING = re.compile(r"  \[error:")
 _FINDING_RULE = re.compile(r"  \[([^\]]+)\]")
@@ -310,7 +312,7 @@ def check_file(payload, roots, settings, cwd, layers):
                 path_findings = [
                     line
                     for line in path_findings
-                    if (match := _FINDING_LINE.search(line)) and int(match.group(1)) in added
+                    if (match := FINDING_LINE.search(line)) and int(match.group(1)) in added
                 ]
         findings.extend(path_findings)
 
