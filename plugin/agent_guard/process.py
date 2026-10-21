@@ -10,7 +10,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .config import JSCPD_VERSION, PYTHON_TOOL_VERSIONS
 from .paths import IN_PROCESS, STATE_DIR
 
 
@@ -52,28 +51,6 @@ def clear_python_problem(cwd):
     """Drop this tree's tool note. A later Stop records a new one only if it fails."""
     with contextlib.suppress(OSError):
         _problem_path(cwd).unlink(missing_ok=True)
-
-
-def tool_command(name, cwd):
-    """The argv that launches one analysis tool, or None when it cannot start.
-
-    The tree's own .venv copy wins. Otherwise uvx runs the version pinned here.
-    jscpd is a Node tool, so it runs through bunx at the pinned version."""
-    if name == "jscpd":
-        bunx = shutil.which("bunx")
-        if bunx is None:
-            record_python_problem("jscpd: bunx is not on PATH, so the analysis stayed silent", cwd)
-            return None
-        return [bunx, "--bun", f"jscpd@{JSCPD_VERSION}"]
-    own = Path(cwd) / ".venv" / "bin" / name
-    if own.is_file() and os.access(own, os.X_OK):
-        return [str(own)]
-    uvx = shutil.which("uvx")
-    if uvx is None:
-        record_python_problem(f"{name}: uv is not on PATH, so the analysis stayed silent", cwd)
-        return None
-    version = PYTHON_TOOL_VERSIONS[name]
-    return [uvx, "--from", f"{name}=={version}", name]
 
 
 def run(cmd, timeout=20, cwd=None, stdin=None, env=None):

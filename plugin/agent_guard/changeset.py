@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .config import JSCPD_MAX_SIZE, JSCPD_MIN_LINES, JSCPD_MIN_TOKENS, _int
 from .contract import SILENT, advised, changed_lines, denied, git_base
+from .external import EXTERNAL_TOOLS, run_external, tool_argv
 from .file_checks import run_changeset_checks
 from .paths import BARREL_OR_TEST, STATE_DIR, TEST_PATH
 from .process import (
@@ -23,7 +24,6 @@ from .process import (
     record_python_problem,
     run,
     succeeds,
-    tool_command,
 )
 
 
@@ -266,40 +266,15 @@ def _selected(changed, analysis, settings, cwd):
 def _run_python_tool(cmd, timeout, cwd, name):
     """Stdout of one analysis tool. A timeout or a failed start is recorded for
     doctor and returns empty, so the audit stays silent."""
-    try:
-        p = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=cwd,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        record_python_problem(
-            f"{name} timed out after {timeout}s, so the analysis stayed silent", cwd
-        )
-        return ""
-    except Exception:
-        record_python_problem(f"{name} failed to start, so the analysis stayed silent", cwd)
-        return ""
-    if p.returncode != 0 and not (p.stdout or "").strip():
-        record_python_problem(
-            f"{name} exited {p.returncode} with no output, so the analysis stayed silent",
-            cwd,
-        )
-        return ""
-    return p.stdout or ""
+    return run_external(name, cmd, timeout, cwd)
 
 
-def find_complexipy(changed, analysis, settings, cwd, base, timeout):
+def find_complexipy(changed, analysis, settings, cwd, base, timeout, _seen_file):
     """Cognitive complexity the changeset introduced, above the tree's threshold."""
     files = _selected(changed, analysis, settings, cwd)
     if not files:
         return ""
-    cmd = tool_command("complexipy", cwd)
+    cmd = tool_argv("complexipy", cwd)
     if cmd is None:
         return ""
     try:
@@ -359,12 +334,12 @@ def find_complexipy(changed, analysis, settings, cwd, base, timeout):
     return "\n".join(lines[: settings.max_findings])
 
 
-def find_lizard(changed, analysis, settings, cwd, base, timeout):
+def find_lizard(changed, analysis, settings, cwd, base, timeout, _seen_file):
     """Cyclomatic complexity, length, or parameter count the changeset introduced."""
     files = _selected(changed, analysis, settings, cwd)
     if not files:
         return ""
-    cmd = tool_command("lizard", cwd)
+    cmd = tool_argv("lizard", cwd)
     if cmd is None:
         return ""
     # A missing whitelist file makes lizard print nothing, so pass one only when it exists.
@@ -420,12 +395,12 @@ def find_lizard(changed, analysis, settings, cwd, base, timeout):
     return "\n".join(lines[: settings.max_findings])
 
 
-def find_vulture(changed, analysis, settings, cwd, base, timeout):
+def find_vulture(changed, analysis, settings, cwd, base, timeout, _seen_file):
     """Dead code on a line the branch added."""
     files = _selected(changed, analysis, settings, cwd)
     if not files:
         return ""
-    cmd = tool_command("vulture", cwd)
+    cmd = tool_argv("vulture", cwd)
     if cmd is None:
         return ""
     whitelist = cwd / analysis.baseline
@@ -527,7 +502,7 @@ def find_jscpd(changed, analysis, settings, cwd, base, timeout, seen_file):
     py_changed = [rel for rel in changed if analysis.ext_re.search(rel)]
     if not py_changed:
         return ""
-    cmd = tool_command("jscpd", cwd)
+    cmd = tool_argv("jscpd", cwd)
     if cmd is None:
         return ""
     added = {rel: changed_lines(str(cwd / rel), base, cwd) for rel in py_changed}
@@ -646,11 +621,11 @@ def _extract_base(base, cwd, dest, deadline):
     return True
 
 
-def find_pyscn(changed, analysis, settings, cwd, base, timeout):
+def find_pyscn(changed, analysis, settings, cwd, base, timeout, _seen_file):
     """Import cycles the working tree has and the base revision did not."""
     if not any(analysis.ext_re.search(rel) for rel in changed):
         return ""
-    cmd = tool_command("pyscn", cwd)
+    cmd = tool_argv("pyscn", cwd)
     if cmd is None:
         return ""
     started = time.monotonic()
@@ -709,10 +684,18 @@ def find_python(changed, settings, cwd, base, budget, seen_file=None):
 
     `budget` is seconds left under the Stop hook's own deadline. Each tool gets
     only what remains, and a tool with none left is skipped and recorded."""
+    readers = {
+        "complexipy": find_complexipy,
+        "lizard": find_lizard,
+        "vulture": find_vulture,
+        "jscpd": find_jscpd,
+        "pyscn": find_pyscn,
+    }
     clear_python_problem(cwd)
     sections = []
     started = time.monotonic()
-    for name in ("complexipy", "lizard", "vulture", "jscpd", "pyscn"):
+    for tool in EXTERNAL_TOOLS:
+        name = tool.name
         analysis = settings.python[name]
         if not analysis.enabled:
             continue
@@ -724,16 +707,7 @@ def find_python(changed, settings, cwd, base, budget, seen_file=None):
             )
             continue
         slot = min(analysis.timeout, left)
-        if name == "jscpd":
-            text = find_jscpd(changed, analysis, settings, cwd, base, slot, seen_file)
-        elif name == "pyscn":
-            text = find_pyscn(changed, analysis, settings, cwd, base, slot)
-        elif name == "complexipy":
-            text = find_complexipy(changed, analysis, settings, cwd, base, slot)
-        elif name == "lizard":
-            text = find_lizard(changed, analysis, settings, cwd, base, slot)
-        else:
-            text = find_vulture(changed, analysis, settings, cwd, base, slot)
+        text = readers[name](changed, analysis, settings, cwd, base, slot, seen_file)
         if text:
             sections.append(text)
     return "\n".join(sections)

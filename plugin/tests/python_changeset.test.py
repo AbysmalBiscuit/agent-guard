@@ -103,6 +103,36 @@ def enable(root, body):
     (nearer / "config.toml").write_text(body, encoding="utf-8")
 
 
+def doctor_hook(root, extra_env=None):
+    """`doctor` in the same tree the Stop hook just audited."""
+    env = {
+        **os.environ,
+        "HOME": str(root / "home"),
+        "AGENT_GUARD_CONFIG_DIR": str(PLUGIN),
+        "XDG_STATE_HOME": str(root / "state"),
+        "AGENT_GUARD_LOG": "0",
+    }
+    env.update(extra_env or {})
+    return run_hook(
+        None,
+        args=("doctor",),
+        capture_output=True,
+        text=True,
+        cwd=root,
+        env=env,
+        timeout=20,
+    )
+
+
+def install_launcher(root, name, body):
+    """A stand-in for one registry launcher, named through the launchers env."""
+    path = root / "launchers" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body, encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
 JSCPD = textwrap.dedent(
     """\
     fallow = false
@@ -212,13 +242,12 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertNotIn("old_a", report)
         self.assertNotIn("pkg.b", report)
 
-    def test_a_missing_runner_leaves_the_audit_silent_and_shows_in_doctor(self):
-        """With bunx and uvx off PATH the Stop hook says nothing, and doctor
-        names both analyses as silent."""
+    def test_a_missing_launcher_leaves_the_audit_silent_and_shows_in_doctor(self):
+        """A launcher the registry cannot start leaves Stop silent. doctor
+        names each analysis that stayed silent, from the registry label."""
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "home").mkdir()
-            (root / "bin").mkdir()
             init_repo(root)
             pkg = root / "pkg"
             pkg.mkdir()
@@ -240,27 +269,10 @@ class PythonChangesetTests(unittest.TestCase):
                     """
                 ),
             )
-            git = shutil.which("git")
-            self.assertIsNotNone(git)
-            (root / "bin" / "git").symlink_to(git)
-            bare = {"PATH": str(root / "bin")}
-            hook = stop_hook(root, session="bare", extra_env=bare)
-            doctor = run_hook(
-                None,
-                args=("doctor",),
-                capture_output=True,
-                text=True,
-                cwd=root,
-                env={
-                    **os.environ,
-                    "HOME": str(root / "home"),
-                    "AGENT_GUARD_CONFIG_DIR": str(PLUGIN),
-                    "XDG_STATE_HOME": str(root / "state"),
-                    "PATH": str(root / "bin"),
-                    "AGENT_GUARD_LOG": "0",
-                },
-                timeout=20,
-            )
+            missing = root / "launchers" / "missing"
+            launchers = {"AGENT_GUARD_LAUNCHERS": f"bunx={missing},uvx={missing}"}
+            hook = stop_hook(root, session="bare", extra_env=launchers)
+            doctor = doctor_hook(root, launchers)
 
         self.assertEqual(hook.returncode, 0, hook.stderr)
         self.assertEqual(hook.stdout, "")
@@ -268,23 +280,15 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertIn("jscpd: bunx is not on PATH, so the analysis stayed silent", doctor.stdout)
         self.assertIn("pyscn: uv is not on PATH, so the analysis stayed silent", doctor.stdout)
 
-    def test_a_runner_timeout_stays_silent_and_doctor_records_it(self):
-        """A runner that does not finish inside its budget leaves Stop silent,
+    def test_a_launcher_timeout_stays_silent_and_doctor_records_it(self):
+        """A launcher that does not finish inside its budget leaves Stop silent,
         and doctor shows that analysis's last failure."""
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "home").mkdir()
-            bindir = root / "bin"
-            bindir.mkdir()
-            git = shutil.which("git")
             sleep = shutil.which("sleep")
-            self.assertIsNotNone(git)
             self.assertIsNotNone(sleep)
-            (bindir / "git").symlink_to(git)
-            for name in ("bunx", "uvx"):
-                wrapper = bindir / name
-                wrapper.write_text(f"#!/bin/sh\nexec {sleep} 30\n", encoding="utf-8")
-                wrapper.chmod(0o755)
+            stall = install_launcher(root, "stall", f"#!/bin/sh\nexec {sleep} 30\n")
             init_repo(root)
             pkg = root / "pkg"
             pkg.mkdir()
@@ -304,23 +308,13 @@ class PythonChangesetTests(unittest.TestCase):
                     """
                 ),
             )
-            hook = stop_hook(root, session="timeout", extra_env={"PATH": str(bindir)}, timeout=20)
-            doctor = run_hook(
-                None,
-                args=("doctor",),
-                capture_output=True,
-                text=True,
-                cwd=root,
-                env={
-                    **os.environ,
-                    "HOME": str(root / "home"),
-                    "AGENT_GUARD_CONFIG_DIR": str(PLUGIN),
-                    "XDG_STATE_HOME": str(root / "state"),
-                    "PATH": str(bindir),
-                    "AGENT_GUARD_LOG": "0",
-                },
+            hook = stop_hook(
+                root,
+                session="timeout",
+                extra_env={"AGENT_GUARD_LAUNCHERS": f"bunx={stall}"},
                 timeout=20,
             )
+            doctor = doctor_hook(root)
 
         self.assertEqual(hook.returncode, 0, hook.stderr)
         self.assertEqual(hook.stdout, "")

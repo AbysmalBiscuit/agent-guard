@@ -3,7 +3,8 @@
 import shutil
 
 from . import _state
-from .config import PYTHON_ANALYSES, Settings, discover_roots, load_config, sgconfig_for
+from .config import Settings, discover_roots, load_config, sgconfig_for
+from .external import missing_launcher_note
 from .paths import CONFIG_NAME, MANDATORY_DIR
 from .process import have, python_tool_problem
 
@@ -87,18 +88,10 @@ def doctor(cwd):
     problem = python_tool_problem(cwd)
     if problem:
         print(f"  python tools : {problem}")
-    elif any(analysis.enabled for analysis in settings.python.values()):
-        missing_uv = [
-            name
-            for name in PYTHON_ANALYSES
-            if settings.python[name].enabled and name != "jscpd" and not have(name)
-        ]
-        if missing_uv and not have("uvx"):
-            print(
-                "  python tools : uv is not on PATH, so " + ", ".join(missing_uv) + " stays silent"
-            )
-        if settings.python["jscpd"].enabled and not have("jscpd") and not have("bunx"):
-            print("  python tools : bunx is not on PATH, so jscpd stays silent")
+    else:
+        enabled = {name for name, analysis in settings.python.items() if analysis.enabled}
+        for note in missing_launcher_note(enabled, cwd):
+            print(f"  python tools : {note}")
     if settings.scope == "diff":
         print("  scope=diff       -> per-file findings limited to lines the branch")
         print("                      added; findings older than it stay quiet")

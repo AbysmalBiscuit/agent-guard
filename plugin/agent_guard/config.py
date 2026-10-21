@@ -175,15 +175,6 @@ def _str(value, fallback):
 
 LAYERS = ("rules", "checks", "tool_checks", "changeset")
 
-# uvx installs these when the tree does not already provide the tool.
-# jscpd is the npm package; the PyPI package of the same version scans nothing.
-PYTHON_TOOL_VERSIONS = {
-    "complexipy": "8.0.1",
-    "lizard": "1.24.1",
-    "vulture": "2.16",
-    "pyscn": "1.32.5",
-}
-JSCPD_VERSION = "5.4.2"
 # jscpd's default min-tokens treats a short file list as empty.
 JSCPD_MIN_LINES = "5"
 JSCPD_MIN_TOKENS = "5"
