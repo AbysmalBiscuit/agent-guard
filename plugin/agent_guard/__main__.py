@@ -45,7 +45,6 @@ def main(argv=None, stdin=None):
         return 0
 
     translate, write = HARNESSES[name]
-    # A positional event name overrides the payload before translation.
     if positional:
         payload["hook_event_name"] = positional[0]
     event = translate(payload)
