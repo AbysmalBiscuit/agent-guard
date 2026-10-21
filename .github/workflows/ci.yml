@@ -19,9 +19,27 @@ jobs:
       - uses: astral-sh/setup-uv@v10.2.0
       - run: uv sync --locked
       - run: uv run ruff check
-      - run: uv run ruff format --check
-      - run: uv run pyrefly check
       - run: shellcheck plugin/scripts/install.sh plugin/hooks/bootstrap-tools
+
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+      - run: uv sync --locked
+      - run: uv run ruff format --check
+
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+      - run: uv sync --locked
+      - run: uv run pyrefly check
 
   test:
     name: test (python ${{ matrix.python }})
