@@ -294,6 +294,16 @@ class PythonAuditTests(unittest.TestCase):
         self.assertNotIn("noisy", out)
         self.assertNotIn("parameters", out)
 
+    def test_a_timeout_leaves_the_audit_silent(self):
+        """A tool that outruns its timeout adds no finding."""
+        checkout = "fallow = false\nlog = 0\n[python]\ncomplexipy = true\ntimeout = 0.01\n"
+        with tempfile.TemporaryDirectory() as directory:
+            project = pathlib.Path(directory) / "project"
+            project.mkdir()
+            commit(project, "seed.py", CALM)
+            (project / "touched.py").write_text(NOISY, encoding="utf-8")
+            self.assertEqual(stop(project, checkout), "")
+
     def test_a_missing_uv_leaves_the_audit_silent(self):
         """uv and the tools are off PATH. The tree asked for an analysis, and
         the hook still exits with no findings."""

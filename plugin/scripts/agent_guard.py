@@ -239,7 +239,8 @@ def run(cmd, timeout=20, cwd=None, stdin=None, env=None):
             check=False,
         )
     except subprocess.TimeoutExpired:
-        _python_tool_problem = f"{cmd[0]} timed out after {timeout}s, so the analysis stayed silent"
+        tool = Path(cmd[0]).name
+        _python_tool_problem = f"{tool} timed out after {timeout}s, so the analysis stayed silent"
         return ""
     except Exception:
         _python_tool_problem = f"{cmd[0]} failed to start, so the analysis stayed silent"
