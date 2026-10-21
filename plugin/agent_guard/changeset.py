@@ -523,17 +523,22 @@ _JSCPD_FORMAT_BY_SUFFIX = {
 }
 
 
-def jscpd_formats(extensions):
-    """jscpd --format values for suffixes an extensions regex matches. Empty omits --format."""
-    try:
-        ext_re = re.compile(extensions) if extensions else None
-    except re.error:
-        return []
-    if ext_re is None:
-        return []
+def jscpd_suffixes(ext_re):
+    """Suffixes the extensions regex selects, mapped or not."""
+    written = []
+    for bare, grouped in re.findall(r"\\\.(?:([A-Za-z0-9]+)|(\([^)]*\)))", ext_re.pattern):
+        pieces = [bare] if bare else grouped[1:-1].split("|")
+        written.extend(piece for piece in pieces if piece.isascii() and piece.isalnum())
+    matched = [suffix for suffix in _JSCPD_FORMAT_BY_SUFFIX if ext_re.search(f"a.{suffix}")]
+    return list(dict.fromkeys([*written, *matched]))
+
+
+def jscpd_formats(selected):
+    """jscpd --format values for the selected files. Empty means skip jscpd."""
     formats = []
-    for suffix, name in _JSCPD_FORMAT_BY_SUFFIX.items():
-        if ext_re.search(f"a.{suffix}") and name not in formats:
+    for rel in selected:
+        name = _JSCPD_FORMAT_BY_SUFFIX.get(Path(rel).suffix.lstrip("."))
+        if name and name not in formats:
             formats.append(name)
     return formats
 
@@ -548,16 +553,18 @@ def find_jscpd(changed, analysis, settings, cwd, base, timeout, seen_file):
     if cmd is None:
         return ""
     added = {rel: changed_lines(str(cwd / rel), base, cwd) for rel in selected}
+    formats = jscpd_formats(selected)
+    if not formats:
+        return ""
     try:
-        STATE_DIR.mkdir(parents=True, exist_ok=True)
         out_dir = Path(tempfile.mkdtemp(prefix="jscpd-", dir=STATE_DIR))
     except OSError:
         return ""
     report = out_dir / "jscpd-report.json"
-    formats = jscpd_formats(analysis.extensions)
     argv = [
         *cmd,
-        *(["--format", ",".join(formats)] if formats else []),
+        "--format",
+        ",".join(formats),
         "--min-lines",
         JSCPD_MIN_LINES,
         "--min-tokens",
@@ -767,11 +774,7 @@ def source_globs(settings):
         globs.extend(PYTHON_GLOBS)
     jscpd = settings.python["jscpd"]
     if jscpd.enabled:
-        globs.extend(
-            f"*.{suffix}"
-            for suffix in _JSCPD_FORMAT_BY_SUFFIX
-            if jscpd.ext_re.search(f"a.{suffix}")
-        )
+        globs.extend(f"*.{suffix}" for suffix in jscpd_suffixes(jscpd.ext_re))
     return tuple(dict.fromkeys(globs))
 
 
