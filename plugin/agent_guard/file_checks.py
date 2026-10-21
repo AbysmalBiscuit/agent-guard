@@ -10,7 +10,6 @@ from pathlib import Path
 
 from . import _state
 from .checks import FILE_CHECKS, MANDATORY_CHECKS, TOOL_CHECKS
-from .paths import CONFIG_DIR, _PLUGIN_ROOT
 from .config import sgconfig_for
 from .contract import (
     ASK_EXIT,
@@ -25,6 +24,7 @@ from .contract import (
     finding_line,
     git_base,
 )
+from .paths import _PLUGIN_ROOT, CONFIG_DIR
 from .process import have, run, run_full
 
 # A check that outruns its bound is silence. A file check reads a whole file,

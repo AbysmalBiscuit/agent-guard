@@ -27,12 +27,7 @@ from agent_guard.checks.secret_decrypt import check as secret_decrypt_check  # n
 from agent_guard.checks.shell_conventions import check as shell_conventions_check  # noqa: E402
 from agent_guard.checks.text_quality import check as text_quality_check  # noqa: E402
 from agent_guard.contract import FINDING_LINE  # noqa: E402
-from agent_guard.file_checks import (  # noqa: E402
-    CHECK_TIMEOUT,
-    FILE_CHECK_TIMEOUT,
-    check_tool,
-    run_mandatory,
-)
+from agent_guard.file_checks import CHECK_TIMEOUT, check_tool, run_mandatory  # noqa: E402
 
 EM_DASH = "\u2014"
 
@@ -171,18 +166,20 @@ class BuiltinChecksFollowTheInstall(unittest.TestCase):
         )
         self.assertEqual(verdict.permission, "deny")
 
-        with tempfile.TemporaryDirectory() as directory:
-            with patch("agent_guard.file_checks.CONFIG_DIR", pathlib.Path(directory)):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch("agent_guard.file_checks.CONFIG_DIR", pathlib.Path(directory)),
+        ):
 
-                class Settings:
-                    tool_checks = True
+            class Settings:
+                tool_checks = True
 
-                decision = check_tool(
-                    {"tool_name": "Bash", "tool_input": {"command": "git stash"}},
-                    [],
-                    Settings(),
-                    pathlib.Path("."),
-                )
+            decision = check_tool(
+                {"tool_name": "Bash", "tool_input": {"command": "git stash"}},
+                [],
+                Settings(),
+                pathlib.Path("."),
+            )
 
         self.assertEqual(decision.permission, "allow")
         self.assertEqual(decision.context, "")
@@ -192,9 +189,11 @@ class BuiltinChecksFollowTheInstall(unittest.TestCase):
         direct = secret_decrypt_check(payload)
         self.assertEqual(direct.permission, "deny")
 
-        with tempfile.TemporaryDirectory() as directory:
-            with patch("agent_guard.file_checks.CONFIG_DIR", pathlib.Path(directory)):
-                decision = run_mandatory(payload)
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch("agent_guard.file_checks.CONFIG_DIR", pathlib.Path(directory)),
+        ):
+            decision = run_mandatory(payload)
 
         self.assertEqual(decision.permission, "deny")
         self.assertIn("age", decision.context)
