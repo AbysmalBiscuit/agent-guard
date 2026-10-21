@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass
+from typing import Literal
 
 from .process import have, run, succeeds
 
@@ -22,7 +23,7 @@ class Decision:
     `permission` is deny, ask or allow. Silence is an allow with empty context.
     """
 
-    permission: str = "allow"
+    permission: Literal["allow", "deny", "ask"] = "allow"
     context: str = ""
     reason: str = ""
 

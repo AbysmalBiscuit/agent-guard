@@ -14,18 +14,21 @@ _FIELDS = {
 
 
 def claude_event(payload):
-    return _normalized(payload), "claude"
+    return _normalized(payload)
 
 
 def codex_event(payload):
-    return _normalized(payload), "codex"
+    return _normalized(payload)
 
 
 def grok_event(payload):
     event = _normalized(payload)
+    # Grok also fires Stop at session teardown, where it ignores the answer.
+    if event.get("hook_event_name") == "Stop" and event.get("reason") != "end_turn":
+        return None
     tool_name = event.get("tool_name") or ""
     event["tool_name"] = GROK_TOOL_NAMES.get(tool_name, tool_name)
-    return event, "grok"
+    return event
 
 
 def _normalized(payload):

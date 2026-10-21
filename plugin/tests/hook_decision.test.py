@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Each tier answers through the package entry point. Run directly: python3 <this file>."""
 
+import io
+import json
 import os
 import pathlib
 import subprocess
@@ -139,10 +141,22 @@ class HookDecisionTests(unittest.TestCase):
             def read(self):
                 return "[]"
 
-        self.assertEqual(main([], Blank()), 0)
-        self.assertEqual(main(["--codex"], Broken()), 0)
-        self.assertEqual(main(["--grok"], EmptyObject()), 0)
-        self.assertEqual(main([], ListPayload()), 0)
+        for argv, source in (
+            ([], Blank()),
+            (["--codex"], Broken()),
+            (["--grok"], EmptyObject()),
+            ([], ListPayload()),
+        ):
+            with self.subTest(argv=argv):
+                out = io.StringIO()
+                real = sys.stdout
+                sys.stdout = out
+                try:
+                    code = main(argv, source)
+                finally:
+                    sys.stdout = real
+                self.assertEqual(code, 0)
+                self.assertEqual(out.getvalue(), "")
         self.assertEqual(
             decide(
                 {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {}}
@@ -150,6 +164,126 @@ class HookDecisionTests(unittest.TestCase):
             "allow",
         )
         self.assertEqual(decide("not-an-event").permission, "allow")
+
+    def test_positional_event_overrides_the_payload_before_translation(self):
+        # The payload names PostToolUse. The positional name wins first, so
+        # the mandatory tier still sees a shell call and denies it.
+        with tempfile.TemporaryDirectory() as directory:
+            out = io.StringIO()
+            real = sys.stdout
+            sys.stdout = out
+            try:
+                code = main(
+                    ["PreToolUse"],
+                    io.StringIO(
+                        json.dumps(
+                            {
+                                "hook_event_name": "PostToolUse",
+                                "session_id": "override",
+                                "cwd": directory,
+                                "tool_name": "Bash",
+                                "tool_input": {"command": "age -d secrets.age"},
+                            }
+                        )
+                    ),
+                )
+            finally:
+                sys.stdout = real
+
+        self.assertEqual(code, 0)
+        output = json.loads(out.getvalue())["hookSpecificOutput"]
+        self.assertEqual(output["hookEventName"], "PreToolUse")
+        self.assertEqual(output["permissionDecision"], "deny")
+        self.assertIn("Decrypting secrets", output["additionalContext"])
+
+    def test_a_stdout_error_stays_silent(self):
+        class Closed:
+            def write(self, _text):
+                raise OSError("stdout closed")
+
+            def flush(self):
+                raise OSError("stdout closed")
+
+        with tempfile.TemporaryDirectory() as directory:
+            out = Closed()
+            real = sys.stdout
+            sys.stdout = out
+            try:
+                code = main(
+                    [],
+                    io.StringIO(
+                        json.dumps(
+                            {
+                                "hook_event_name": "PreToolUse",
+                                "session_id": "stdout",
+                                "cwd": directory,
+                                "tool_name": "Bash",
+                                "tool_input": {"command": "age -d secrets.age"},
+                            }
+                        )
+                    ),
+                )
+            finally:
+                sys.stdout = real
+
+        self.assertEqual(code, 0)
+
+    def test_grok_teardown_writes_nothing(self):
+        # Grok fires Stop at session teardown and ignores the answer. The
+        # adapter yields no event, so the process entry writes nothing even
+        # when the payload would otherwise block.
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+            (root / "seed.txt").write_text("seed\n", encoding="utf-8")
+            subprocess.run(["git", "add", "seed.txt"], cwd=root, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Agent Guard Test",
+                    "-c",
+                    "user.email=agent-guard@example.com",
+                    "-c",
+                    "commit.gpgSign=false",
+                    "commit",
+                    "--quiet",
+                    "-m",
+                    "seed",
+                ],
+                cwd=root,
+                check=True,
+            )
+            guard = root / ".agents" / "plugins" / "agent-guard"
+            checks = guard / "changeset_checks"
+            checks.mkdir(parents=True)
+            (guard / "config.toml").write_text("block = true\nfallow = false\n", encoding="utf-8")
+            (checks / "project-rule.py").write_text(
+                'print("project violation")\n', encoding="utf-8"
+            )
+            out = io.StringIO()
+            real = sys.stdout
+            sys.stdout = out
+            try:
+                code = main(
+                    ["--grok"],
+                    io.StringIO(
+                        json.dumps(
+                            {
+                                "hook_event_name": "Stop",
+                                "reason": "shutdown",
+                                "session_id": f"teardown-{uuid.uuid4()}",
+                                "cwd": str(root),
+                                "stop_hook_active": False,
+                            }
+                        )
+                    ),
+                )
+            finally:
+                sys.stdout = real
+
+        self.assertEqual(code, 0)
+        self.assertEqual(out.getvalue(), "")
 
 
 if __name__ == "__main__":

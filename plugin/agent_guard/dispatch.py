@@ -14,7 +14,7 @@ from .paths import SCRIPTS_DIR
 from .process import run
 
 
-def decide(payload, *, harness="claude"):
+def decide(payload):
     """The decision for one hook event.
 
     `payload` is the event after an adapter has translated its tool names.
@@ -22,8 +22,6 @@ def decide(payload, *, harness="claude"):
     if not isinstance(payload, dict):
         return SILENT
     event = payload.get("hook_event_name") or ""
-    if harness == "grok" and event == "Stop" and payload.get("reason") != "end_turn":
-        return SILENT
 
     session = payload.get("session_id") or "nosession"
     agent_type = payload.get("agent_type") or payload.get("subagentType") or ""

@@ -45,19 +45,26 @@ def main(argv=None, stdin=None):
         return 0
 
     translate, write = HARNESSES[name]
-    event, harness = translate(payload)
+    # A positional event name overrides the payload before translation.
+    if positional:
+        payload["hook_event_name"] = positional[0]
+    event = translate(payload)
+    if event is None:
+        return 0
     if event.get("hook_event_name") == "PreToolUse":
         _state.arm_watchdog(_state.deadline(6))
     elif event.get("hook_event_name") == "PostToolUse":
         _state.arm_watchdog(_state.deadline(9))
     try:
-        decision = decide(event, harness=harness)
+        decision = decide(event)
+        _state.release_log()
+        write(decision, event.get("hook_event_name") or "")
     except BaseException:
-        # A broken check degrades to silence rather than wedging the session.
+        # A broken check, or a stdout the harness already closed, degrades to
+        # silence rather than wedging the session. The watchdog stays outside
+        # this guard: arming it is what bounds the run.
         _state.release_log()
         return 0
-    _state.release_log()
-    write(decision, event.get("hook_event_name") or "")
     return 0
 
 
