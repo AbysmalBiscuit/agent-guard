@@ -11,7 +11,7 @@ import textwrap
 import unittest
 
 from hook_support import PLUGIN_ROOT as PLUGIN
-from hook_support import run_hook
+from hook_support import pinned_binary, requires_pinned, run_hook, stub_mise
 
 GIT_SHIM = textwrap.dedent(
     """\
@@ -478,6 +478,7 @@ class ChangesetOnceTests(unittest.TestCase):
         self.assertIn("src/café.go", report)
         self.assertIn("plain.go", report)
 
+    @requires_pinned("jscpd")
     def test_a_missing_tool_does_not_silence_the_other_analyses(self):
         """A tool that cannot start returns an empty result. The other
         analyses still report."""
@@ -502,12 +503,13 @@ class ChangesetOnceTests(unittest.TestCase):
                     """
                 ),
             )
-            # fallow is absent from PATH, so that analysis exits before it
-            # parses. jscpd still has to report the clone. git stays visible.
+            # mise has no fallow pin, so that analysis exits before it parses.
+            # jscpd still has to report the clone. git and node stay visible.
             bindir, log, real = install_git_shim(root)
+            mise = stub_mise(root / "mise", {"jscpd": pinned_binary("jscpd")})
             hidden = root / "no-fallow"
             hidden.mkdir()
-            for name in ("git", "bunx", "bun", "uvx"):
+            for name in ("git", "node"):
                 target = shutil.which(name)
                 if target:
                     link = hidden / name
@@ -518,7 +520,7 @@ class ChangesetOnceTests(unittest.TestCase):
                 bindir,
                 log,
                 real,
-                path=f"{bindir}{os.pathsep}{hidden}",
+                path=os.pathsep.join([str(bindir), mise, str(hidden), "/usr/bin", "/bin"]),
             )
 
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
