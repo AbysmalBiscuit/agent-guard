@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Each tier answers through the package entry point. Run directly: python3 <this file>."""
 
+import contextlib
 import io
 import json
 import os
@@ -31,6 +32,42 @@ def event(name, tool, tool_input, cwd, **fields):
         "tool_input": tool_input,
         **fields,
     }
+
+
+def blocking_changeset(root):
+    subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+    (root / "seed.txt").write_text("seed\n", encoding="utf-8")
+    subprocess.run(["git", "add", "seed.txt"], cwd=root, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Agent Guard Test",
+            "-c",
+            "user.email=agent-guard@example.com",
+            "-c",
+            "commit.gpgSign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "seed",
+        ],
+        cwd=root,
+        check=True,
+    )
+    guard = root / ".agents" / "plugins" / "agent-guard"
+    checks = guard / "changeset_checks"
+    checks.mkdir(parents=True)
+    (guard / "config.toml").write_text("block = true\nfallow = false\n", encoding="utf-8")
+    (checks / "project-rule.py").write_text('print("project violation")\n', encoding="utf-8")
+
+
+def run_main(argv, source, stdout=None):
+    out = io.StringIO() if stdout is None else stdout
+    with contextlib.redirect_stdout(out):
+        code = main(argv, source)
+    printed = out.getvalue() if hasattr(out, "getvalue") else ""
+    return code, printed
 
 
 class HookDecisionTests(unittest.TestCase):
@@ -80,33 +117,7 @@ class HookDecisionTests(unittest.TestCase):
     def test_changeset_tier_returns_a_block(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
-            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
-            (root / "seed.txt").write_text("seed\n", encoding="utf-8")
-            subprocess.run(["git", "add", "seed.txt"], cwd=root, check=True)
-            subprocess.run(
-                [
-                    "git",
-                    "-c",
-                    "user.name=Agent Guard Test",
-                    "-c",
-                    "user.email=agent-guard@example.com",
-                    "-c",
-                    "commit.gpgSign=false",
-                    "commit",
-                    "--quiet",
-                    "-m",
-                    "seed",
-                ],
-                cwd=root,
-                check=True,
-            )
-            guard = root / ".agents" / "plugins" / "agent-guard"
-            checks = guard / "changeset_checks"
-            checks.mkdir(parents=True)
-            (guard / "config.toml").write_text("block = true\nfallow = false\n", encoding="utf-8")
-            (checks / "project-rule.py").write_text(
-                'print("project violation")\n', encoding="utf-8"
-            )
+            blocking_changeset(root)
             # The worktree's own untracked files are present beside this temp
             # checkout. The payload cwd keeps the audit on the temp tree.
             decision = decide(
@@ -148,15 +159,9 @@ class HookDecisionTests(unittest.TestCase):
             ([], ListPayload()),
         ):
             with self.subTest(argv=argv):
-                out = io.StringIO()
-                real = sys.stdout
-                sys.stdout = out
-                try:
-                    code = main(argv, source)
-                finally:
-                    sys.stdout = real
+                code, printed = run_main(argv, source)
                 self.assertEqual(code, 0)
-                self.assertEqual(out.getvalue(), "")
+                self.assertEqual(printed, "")
         self.assertEqual(
             decide(
                 {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {}}
@@ -169,29 +174,23 @@ class HookDecisionTests(unittest.TestCase):
         # The payload names PostToolUse. The positional name wins first, so
         # the mandatory tier still sees a shell call and denies it.
         with tempfile.TemporaryDirectory() as directory:
-            out = io.StringIO()
-            real = sys.stdout
-            sys.stdout = out
-            try:
-                code = main(
-                    ["PreToolUse"],
-                    io.StringIO(
-                        json.dumps(
-                            {
-                                "hook_event_name": "PostToolUse",
-                                "session_id": "override",
-                                "cwd": directory,
-                                "tool_name": "Bash",
-                                "tool_input": {"command": "age -d secrets.age"},
-                            }
-                        )
-                    ),
-                )
-            finally:
-                sys.stdout = real
+            code, printed = run_main(
+                ["PreToolUse"],
+                io.StringIO(
+                    json.dumps(
+                        {
+                            "hook_event_name": "PostToolUse",
+                            "session_id": "override",
+                            "cwd": directory,
+                            "tool_name": "Bash",
+                            "tool_input": {"command": "age -d secrets.age"},
+                        }
+                    )
+                ),
+            )
 
         self.assertEqual(code, 0)
-        output = json.loads(out.getvalue())["hookSpecificOutput"]
+        output = json.loads(printed)["hookSpecificOutput"]
         self.assertEqual(output["hookEventName"], "PreToolUse")
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("Decrypting secrets", output["additionalContext"])
@@ -205,26 +204,21 @@ class HookDecisionTests(unittest.TestCase):
                 raise OSError("stdout closed")
 
         with tempfile.TemporaryDirectory() as directory:
-            out = Closed()
-            real = sys.stdout
-            sys.stdout = out
-            try:
-                code = main(
-                    [],
-                    io.StringIO(
-                        json.dumps(
-                            {
-                                "hook_event_name": "PreToolUse",
-                                "session_id": "stdout",
-                                "cwd": directory,
-                                "tool_name": "Bash",
-                                "tool_input": {"command": "age -d secrets.age"},
-                            }
-                        )
-                    ),
-                )
-            finally:
-                sys.stdout = real
+            code, _printed = run_main(
+                [],
+                io.StringIO(
+                    json.dumps(
+                        {
+                            "hook_event_name": "PreToolUse",
+                            "session_id": "stdout",
+                            "cwd": directory,
+                            "tool_name": "Bash",
+                            "tool_input": {"command": "age -d secrets.age"},
+                        }
+                    )
+                ),
+                stdout=Closed(),
+            )
 
         self.assertEqual(code, 0)
 
@@ -234,56 +228,24 @@ class HookDecisionTests(unittest.TestCase):
         # when the payload would otherwise block.
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
-            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
-            (root / "seed.txt").write_text("seed\n", encoding="utf-8")
-            subprocess.run(["git", "add", "seed.txt"], cwd=root, check=True)
-            subprocess.run(
-                [
-                    "git",
-                    "-c",
-                    "user.name=Agent Guard Test",
-                    "-c",
-                    "user.email=agent-guard@example.com",
-                    "-c",
-                    "commit.gpgSign=false",
-                    "commit",
-                    "--quiet",
-                    "-m",
-                    "seed",
-                ],
-                cwd=root,
-                check=True,
+            blocking_changeset(root)
+            code, printed = run_main(
+                ["--grok"],
+                io.StringIO(
+                    json.dumps(
+                        {
+                            "hook_event_name": "Stop",
+                            "reason": "shutdown",
+                            "session_id": f"teardown-{uuid.uuid4()}",
+                            "cwd": str(root),
+                            "stop_hook_active": False,
+                        }
+                    )
+                ),
             )
-            guard = root / ".agents" / "plugins" / "agent-guard"
-            checks = guard / "changeset_checks"
-            checks.mkdir(parents=True)
-            (guard / "config.toml").write_text("block = true\nfallow = false\n", encoding="utf-8")
-            (checks / "project-rule.py").write_text(
-                'print("project violation")\n', encoding="utf-8"
-            )
-            out = io.StringIO()
-            real = sys.stdout
-            sys.stdout = out
-            try:
-                code = main(
-                    ["--grok"],
-                    io.StringIO(
-                        json.dumps(
-                            {
-                                "hook_event_name": "Stop",
-                                "reason": "shutdown",
-                                "session_id": f"teardown-{uuid.uuid4()}",
-                                "cwd": str(root),
-                                "stop_hook_active": False,
-                            }
-                        )
-                    ),
-                )
-            finally:
-                sys.stdout = real
 
         self.assertEqual(code, 0)
-        self.assertEqual(out.getvalue(), "")
+        self.assertEqual(printed, "")
 
 
 if __name__ == "__main__":
