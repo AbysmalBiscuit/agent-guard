@@ -7,8 +7,8 @@ One hook package, `plugin/agent_guard`, handles every hook event:
 | Event | What runs |
 |---|---|
 | `SessionStart` | `hooks/bootstrap-tools`, which installs ast-grep and fallow when missing. |
-| `PreToolUse` | `tool_checks/` scripts on the shell command or edit about to run, plus the `mandatory/` tier on shell tools. A check can advise, ask the human, or deny. |
-| `PostToolUse` (edits) | ast-grep `rules/` and `checks/` scripts on each edited file, reporting only the lines the branch introduced. Advisory. |
+| `PreToolUse` | Built-in tool checks, plus `tool_checks/` scripts, on the shell command or edit about to run, plus the `mandatory/` tier on shell tools. A check can advise, ask the human, or deny. |
+| `PostToolUse` (edits) | ast-grep `rules/`, built-in file checks and `checks/` scripts on each edited file, reporting only the lines the branch introduced. Advisory. |
 | `Stop`, `SubagentStop` | A fallow audit of the changeset for duplication and over-extraction, plus `changeset_checks/` scripts. A tree can also turn on Python complexity and dead-code analyses, and a file-length check. Advisory unless `block = true`. |
 | `SessionEnd` | Removes the fallow audit cache of the session's project. |
 
@@ -202,11 +202,11 @@ complexipy, lizard, vulture and pyscn run through `uvx`, and jscpd through `bunx
 
 A clone group is reported when one of its instances sits on a line the branch added, and each fingerprint once per session. A cycle is reported when the base revision did not have it.
 
-`mandatory/` holds checks no setting, root, or environment variable can disable or move. They load only from the installed plugin and run on shell tools.
+The mandatory tier holds checks no setting, root, or environment variable can disable or move. It loads only from the installed package and runs on shell tools.
 
 ## Writing checks
 
-A root holds any of these directories. The hook runs every `*.py` script in them with its own Python interpreter, so the executable bit and shebang do not matter.
+A root holds any of these directories. The hook runs every `*.py` script in them with its own Python interpreter, so the executable bit and shebang do not matter. Built-in checks are package functions and do not use this contract.
 
 | Directory | Runs on | Input | Output |
 |---|---|---|---|
@@ -242,7 +242,8 @@ plugin/
   hooks/run-hook.cmd              cross-platform launcher for bash hooks
   agent_guard/                    hook package
   scripts/                        helpers
-  tool_checks/ checks/ mandatory/ check scripts
+  agent_guard/checks/             built-in checks
+  tool_checks/ checks/            project check scripts
   rules/ queries/ sgconfig.yml    ast-grep rules
   tests/                          test suite
 ```

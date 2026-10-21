@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cases for tool_checks/text_quality.py.
+"""Cases for agent_guard.checks.text_quality.
 
 Which half of a call is read matters most: the text a call adds is checked and
 the text it removes is not, or the rule would refuse the very edit that takes
@@ -8,45 +8,35 @@ through the hook and reach the harness as the decision it stands for. Every
 character under test is written as an escape, so this file is ASCII.
 """
 
-import importlib.util
 import json
-import subprocess
+import pathlib
 import sys
 import tempfile
 import unittest
 
-from hook_support import PLUGIN_ROOT, run_hook
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-CHECK = PLUGIN_ROOT / "tool_checks" / "text_quality.py"
+from agent_guard.checks import text_quality as check_module
+from agent_guard.contract import ASK_EXIT
+from hook_support import run_hook
 
 EM_DASH = "\u2014"
 EN_DASH = "\u2013"
 INTERPUNCT = "\u00b7"
 
-ASK_EXIT = 2
+_PERMISSION_CODE = {"deny": 1, "ask": ASK_EXIT, "allow": 0}
 
 
 def load_check():
-    """The check as a module, for its rules and its judge."""
-    spec = importlib.util.spec_from_file_location("check_under_test", CHECK)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    """The check module, for its rules and its judge."""
+    return check_module
 
 
 def check(tool, tool_input):
-    payload = {"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": tool_input}
-    result = subprocess.run(
-        [sys.executable, str(CHECK), tool],
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        timeout=15,
-        check=False,
+    verdict = check_module.check(
+        {"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": tool_input}
     )
-    return result.stdout.strip(), result.returncode
+    return verdict.context.strip(), _PERMISSION_CODE[verdict.permission]
 
 
 class RefusedCharacters(unittest.TestCase):
@@ -158,9 +148,9 @@ class RuleValues(unittest.TestCase):
         module = load_check()
         module.WARN["utilize"] = "use"
 
-        message, code = module.judge("we utilize it")
+        message, permission = module.judge("we utilize it")
 
-        self.assertEqual(code, 0)
+        self.assertEqual(permission, "allow")
         self.assertIn('"utilize"', message)
         self.assertIn("Write `use` instead.", message)
 
@@ -168,9 +158,9 @@ class RuleValues(unittest.TestCase):
         module = load_check()
         module.WARN["frobnicate"] = "poke"
 
-        message, code = module.judge("Frobnicate it first")
+        message, permission = module.judge("Frobnicate it first")
 
-        self.assertEqual(code, 0)
+        self.assertEqual(permission, "allow")
         self.assertIn("Write `poke` instead.", message)
         self.assertIn("Frobnicate it first", message)
 

@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""Cases for tool_checks/shell_conventions.py, each with a PATH of only the tools it names."""
+"""Cases for agent_guard.checks.shell_conventions, each with a PATH of only the tools it names."""
 
-import json
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from hook_support import PLUGIN_ROOT
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-CHECK = PLUGIN_ROOT / "tool_checks" / "shell_conventions.py"
+from agent_guard.checks.shell_conventions import check
 
 
 class ShellConventionsTests(unittest.TestCase):
@@ -21,24 +19,24 @@ class ShellConventionsTests(unittest.TestCase):
                 stub = Path(bin_dir) / tool
                 stub.write_text("#!/bin/sh\n", encoding="utf-8")
                 stub.chmod(0o755)
-            return subprocess.run(
-                [sys.executable, str(CHECK), "Bash"],
-                input=json.dumps({"tool_input": {"command": command}}),
-                capture_output=True,
-                check=False,
-                text=True,
-                env={**os.environ, "PATH": bin_dir},
-                timeout=10,
-            )
+            saved = os.environ.get("PATH")
+            os.environ["PATH"] = bin_dir
+            try:
+                return check({"tool_name": "Bash", "tool_input": {"command": command}})
+            finally:
+                if saved is None:
+                    os.environ.pop("PATH", None)
+                else:
+                    os.environ["PATH"] = saved
 
     def assert_denied(self, command, tools, says):
-        result = self.run_check(command, tools)
-        self.assertEqual(result.returncode, 1, command)
-        self.assertIn(says, result.stdout)
+        verdict = self.run_check(command, tools)
+        self.assertEqual(verdict.permission, "deny", command)
+        self.assertIn(says, verdict.context)
 
     def assert_allowed(self, command, tools):
-        result = self.run_check(command, tools)
-        self.assertEqual((result.returncode, result.stdout), (0, ""), command)
+        verdict = self.run_check(command, tools)
+        self.assertEqual((verdict.permission, verdict.context), ("allow", ""), command)
 
     def test_find_and_ls_recursive_need_fd(self):
         for command in ("find . -name '*.py'", "ls -R src"):

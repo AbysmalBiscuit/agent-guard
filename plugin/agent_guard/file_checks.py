@@ -7,49 +7,50 @@ import sys
 from pathlib import Path
 
 from . import _state
+from .checks import FILE_CHECKS, MANDATORY_CHECKS, TOOL_CHECKS
 from .config import sgconfig_for
 from .contract import (
     ASK_EXIT,
+    FINDING_LINE,
     SHELL_TOOLS,
     SILENT,
+    Decision,
     advised,
     asked,
     changed_lines,
     denied,
+    finding_line,
     git_base,
 )
-from .paths import MANDATORY_DIR, MANDATORY_TIMEOUT
-from .process import have, run, run_full, run_script
+from .process import have, run, run_full
 
 
-def run_checks(path, roots, cwd):
-    """Conventions ast-grep cannot reach. Tree-sitter discards whitespace, so
-    nothing about blank lines or vertical spacing is expressible as a rule; those
-    live here instead. A root's checks/ holds Python scripts, each given one file
-    path as its argument and printing findings on stdout in the shape the
-    ast-grep scan produces:
+def run_checks(path, roots, cwd, source=None):
+    """Package file checks, then a root's checks/ scripts.
 
-      <2 spaces><file>:<line><2 spaces>[<rule-id>] <message>
-
-    A check decides for itself which files it has anything to say about, because
-    the extensions setting is one regex for the whole layer.
-
-    Run through this interpreter rather than their shebang: the executable bit
-    does not survive a clone onto Windows, and an interpreter the hook is already
-    running under is the one thing every machine is guaranteed to have."""
+    A script prints `  <file>:<line>  [<rule-id>] <message>` and runs in its own
+    interpreter, because the executable bit does not survive a clone."""
     out = []
+    if source is None:
+        try:
+            source = Path(path).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            source = ""
+    for check in FILE_CHECKS:
+        try:
+            lines = check(source, path)
+        except Exception:
+            _state.log(2, "check", script=check.__module__, verdict="silent", reason="raised")
+            continue
+        if lines:
+            out.append("\n".join(lines))
     for root in roots:
         checks = root / "checks"
         if not checks.is_dir():
             continue
         for script in sorted(checks.glob("*.py")):
             # Only newlines: the leading two spaces are part of the finding format.
-            result = run_script(script, str(path), "", cwd, 10)
-            text = (
-                result[0]
-                if result
-                else run([sys.executable, str(script), str(path)], timeout=10, cwd=cwd)
-            ).strip("\r\n")
+            text = run([sys.executable, str(script), str(path)], timeout=10, cwd=cwd).strip("\r\n")
             if text:
                 out.append(text)
     return "\n".join(out)
@@ -64,8 +65,7 @@ def run_changeset_checks(base, roots, cwd):
     call and a PostToolUse check sees one file, so whatever reaches the branch by
     a route neither covers arrives unexamined. The diff is where that shows up.
 
-    Run through this interpreter rather than their shebang, for the reason
-    run_checks gives."""
+    A script runs in its own interpreter, for the reason run_checks gives."""
     out = []
     for root in roots:
         directory = root / "changeset_checks"
@@ -78,126 +78,137 @@ def run_changeset_checks(base, roots, cwd):
     return "\n\n".join(out)
 
 
-def run_mandatory(payload, cwd):
-    """PreToolUse scripts no config can switch off, for rules whose whole value
-    is that an agent cannot negotiate past them. Same contract as tool_checks/,
-    so a script changes tier by changing directory.
-
-    A script that exits non-zero without saying why has crashed rather than
-    denied, and that is reported as a denial naming the file. The alternative is
-    silence, and a security check that vanishes when it breaks is worse than one
-    that is loudly in the way.
-
-    Shell tools only, which is what keeps that trade survivable: the tier exists
-    because a shell command reaches secrets that the Read and Edit permission
-    rules already gate, and leaving the file tools out of it means a broken
-    script can still be edited back into shape. Scope by tool, not a setting:
-    nothing here is negotiable for the calls it does cover."""
-    if not MANDATORY_DIR.is_dir():
-        return SILENT
-    if (payload.get("tool_name") or "") not in SHELL_TOOLS:
-        return SILENT
-    raw = json.dumps(payload, separators=(",", ":"))
-    tool = payload.get("tool_name") or ""
-
-    advice, denials = [], []
-    for script in sorted(MANDATORY_DIR.glob("*.py")):
-        out, code = run_script(script, tool, raw, cwd, MANDATORY_TIMEOUT) or run_full(
-            [sys.executable, str(script), tool],
-            timeout=MANDATORY_TIMEOUT,
-            cwd=cwd,
-            stdin=raw,
-        )
-        out = out.strip()
+def _merge(named):
+    """One decision from named check results. A denial outranks an ask."""
+    advice, asks, denials = [], [], []
+    for name, decision in named:
+        if not isinstance(decision, Decision):
+            continue
+        text = (decision.context or "").strip()
+        verdict = "silent"
+        if decision.permission == "deny":
+            verdict = "deny"
+        elif decision.permission == "ask":
+            verdict = "ask"
+        elif text:
+            verdict = "advise"
         _state.log(
             2,
-            "mandatory",
-            script=script.name,
-            verdict="deny" if code else "advise" if out else "silent",
-            reason=out.splitlines()[0] if out else None,
+            "check",
+            script=name,
+            verdict=verdict,
+            reason=text.splitlines()[0] if text else None,
         )
-        if code:
+        if verdict == "deny":
             denials.append(
-                out
-                or f"agent-guard: the mandatory check {script.name} failed to run, "
-                "so the call it protects is refused. Fix the script; Edit and "
-                "Write are not gated by this hook."
+                text
+                or f"agent-guard: the check {name} failed to run, so the call it "
+                "protects is refused. Fix the check; Edit and Write are not "
+                "gated by this hook."
             )
-        elif out:
-            advice.append(out)
-
+        elif verdict == "ask":
+            asks.append(text)
+        elif text:
+            advice.append(text)
     if denials:
-        return denied("\n\n".join(denials + advice), "\n\n".join(denials))
+        return denied("\n\n".join(denials + asks + advice), "\n\n".join(denials))
+    if asks:
+        return asked("\n\n".join(asks + advice), "\n\n".join(asks))
     if advice:
         return advised("\n\n".join(advice))
     return SILENT
 
 
+def run_mandatory(payload, cwd):
+    """Shell-tool checks no config can switch off.
+
+    A raised check is a denial naming it. Silence would hide a broken security
+    check, and file tools stay ungated so the check can still be edited."""
+    del cwd
+    if (payload.get("tool_name") or "") not in SHELL_TOOLS:
+        return SILENT
+    named = []
+    for check in MANDATORY_CHECKS:
+        try:
+            named.append((check.__module__.rsplit(".", 1)[-1], check(payload)))
+        except Exception:
+            named.append((check.__module__.rsplit(".", 1)[-1], denied("", "")))
+    merged = _merge(named)
+    if merged.permission != "allow" or merged.context:
+        _state.log(
+            1,
+            "decision",
+            tool=payload.get("tool_name") or "",
+            outcome=merged.permission,
+        )
+    return merged
+
+
+def script_verdict(out, code, name):
+    """The decision a project script's stdout and exit code stand for.
+
+    Empty stdout is silence. Stdout with exit 0 advises. Stdout with the ask
+    exit code hands the call to the human. Any other non-zero exit denies, and
+    a crash that printed nothing is still a denial naming the script."""
+    text = out.strip()
+    if code == 0 and not text:
+        return Decision()
+    if code == 0:
+        return advised(text)
+    if code == ASK_EXIT and text:
+        return asked(text, text)
+    return denied(
+        text
+        or f"agent-guard: the check {name} failed to run, so the call it protects "
+        "is refused. Fix the script; Edit and Write are not gated by this hook.",
+        text
+        or f"agent-guard: the check {name} failed to run, so the call it protects "
+        "is refused. Fix the script; Edit and Write are not gated by this hook.",
+    )
+
+
 def check_tool(payload, roots, settings, cwd):
-    """The call the agent is about to make, before it makes it. A root's
-    tool_checks/ holds Python scripts, each given the tool name as its argument
-    and the whole hook payload on stdin, and answering in three ways:
+    """Package tool checks, then a root's tool_checks/ scripts.
 
-      empty stdout            the call is fine, say nothing
-      stdout, exit 0          advisory: the call proceeds, the text is context
-      stdout, exit 2          ask: the human decides, the text is the question
-      stdout, other non-zero  deny: the call never runs, the text is the reason
-
-    The ask tier is for a convention that holds until a human says otherwise.
-    Advice an agent may talk itself past is not the same rule, and a refusal a
-    human cannot lift is a different one; asking is how a check says the call is
-    theirs to allow. A crashing check exits 1, so it can only ever deny.
-
-    A denial is read by the model, not by a person, so a script's text earns its
-    keep by naming what to do instead. Scripts run through this interpreter
-    rather than their shebang, because the executable bit does not survive a
-    clone onto Windows."""
+    A script gets the tool name as its argument and the payload on stdin.
+    Empty stdout is silence, exit 0 advises, the ask exit hands the call to
+    the human, and any other non-zero exit denies."""
     if not settings.tool_checks:
         return SILENT
     raw = json.dumps(payload, separators=(",", ":"))
     tool = payload.get("tool_name") or ""
-
-    advice, asks, denials = [], [], []
+    named = []
+    for check in TOOL_CHECKS:
+        try:
+            named.append((check.__module__.rsplit(".", 1)[-1], check(payload)))
+        except Exception:
+            # A broken built-in degrades to silence rather than denying work.
+            _state.log(2, "check", script=check.__module__, verdict="silent", reason="raised")
+            continue
     for root in roots:
         checks = root / "tool_checks"
         if not checks.is_dir():
             continue
         for script in sorted(checks.glob("*.py")):
-            out, code = run_script(script, tool, raw, cwd, 5) or run_full(
+            out, code = run_full(
                 [sys.executable, str(script), tool],
                 timeout=5,
                 cwd=cwd,
                 stdin=raw,
             )
-            out = out.strip()
-            verdict = "silent"
-            if out:
-                verdict = "ask" if code == ASK_EXIT else "deny" if code else "advise"
-            _state.log(
-                2,
-                "tool-check",
-                script=script.name,
-                verdict=verdict,
-                reason=out.splitlines()[0] if out else None,
-            )
-            if not out:
-                continue
-            {"ask": asks, "deny": denials, "advise": advice}[verdict].append(out)
+            named.append((script.name, script_verdict(out, code, script.name)))
 
-    if denials:
-        _state.log(1, "decision", tool=tool, outcome="deny", checks=len(denials))
-        return denied("\n\n".join(denials + asks + advice), "\n\n".join(denials))
-    if asks:
-        _state.log(1, "decision", tool=tool, outcome="ask", checks=len(asks))
-        return asked("\n\n".join(asks + advice), "\n\n".join(asks))
-    if advice:
-        _state.log(1, "decision", tool=tool, outcome="advise", checks=len(advice))
-        return advised("\n\n".join(advice))
-    _state.log(1, "decision", tool=tool, outcome="allow")
-    return SILENT
+    merged = _merge(named)
+    _state.log(
+        1,
+        "decision",
+        tool=tool,
+        outcome=merged.permission if merged.context or merged.permission != "allow" else "allow",
+    )
+    return merged
 
 
-_FINDING_LINE = re.compile(r":(\d+)  \[")
+_FINDING_LINE = FINDING_LINE
 _INFO_FINDING = re.compile(r"  \[info:")
 _ERROR_FINDING = re.compile(r"  \[error:")
 _FINDING_RULE = re.compile(r"  \[([^\]]+)\]")
@@ -274,11 +285,10 @@ def scan_file(path, roots, cwd, layers):
                 rule = re.sub(r"-(typescript|tsx)$", "", hit.get("ruleId", ""))
                 line = hit.get("range", {}).get("start", {}).get("line", 0) + 1
                 findings.append(
-                    "  {}:{}  [{}{}] {}".format(
+                    finding_line(
                         hit.get("file", path),
                         line,
-                        _SG_SEVERITY.get(hit.get("severity"), "warn:"),
-                        rule,
+                        f"{_SG_SEVERITY.get(hit.get('severity'), 'warn:')}{rule}",
                         hit.get("message", ""),
                     )
                 )

@@ -16,6 +16,17 @@ ASK_EXIT = 2
 SHELL_TOOLS = frozenset({"Bash", "PowerShell", "exec_command", "shell_command", "shell"})
 
 
+# One finding line, as a checks/ script prints it and as a package function
+# returns it. The line number sits between the colon and the rule id, which is
+# what the diff filter reads.
+FINDING_LINE = re.compile(r":(\d+)  \[")
+
+
+def finding_line(path, line, rule, message):
+    """One finding, in the only shape the runner and a project script share."""
+    return f"  {path}:{line}  [{rule}] {message}"
+
+
 @dataclass(frozen=True)
 class Decision:
     """What one event decided, before a harness writes it.

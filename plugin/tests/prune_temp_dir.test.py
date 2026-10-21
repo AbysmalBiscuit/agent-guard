@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""Cases for tool_checks/prune_temp_dir.py. Run directly: python3 <this file>.
-
-Held here rather than beside the check, because tool_checks/ globs every *.py
-in it and would run this file as a check on each Bash call.
+"""Cases for agent_guard.checks.prune_temp_dir. Run directly: python3 <this file>.
 
 The check deletes files, so the cases that matter are the ones saying what it
 refuses to touch: a directory that is not the redirected temp root, a file
@@ -11,25 +8,23 @@ that stops it running twice in a day.
 """
 
 import contextlib
-import io
 import os
 import pathlib
 import sys
 import tempfile
 import time
-import types
 
-from hook_support import PLUGIN_ROOT
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-CHECK = PLUGIN_ROOT / "tool_checks" / "prune_temp_dir.py"
+from agent_guard.checks import prune_temp_dir as prune_module
+
+CHECK = prune_module
+
 DAY = 86400
 
 
 def load():
-    module = types.ModuleType("check_under_test")
-    module.__file__ = str(CHECK)
-    exec(compile(CHECK.read_text(encoding="utf-8"), str(CHECK), "exec"), module.__dict__)
-    return module
+    return CHECK
 
 
 @contextlib.contextmanager
@@ -64,11 +59,9 @@ def write(path, days=None):
 
 
 def run(module):
-    """The check's exit code and whatever it printed."""
-    captured = io.StringIO()
-    with contextlib.redirect_stdout(captured):
-        code = module.main()
-    return code, captured.getvalue()
+    """The check's decision. It prints nothing and always allows the call."""
+    decision = module.check({})
+    return 0 if decision.permission == "allow" else 1, decision.context
 
 
 def test_refuses_a_root_that_is_not_the_redirected_temp():

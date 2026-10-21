@@ -21,10 +21,6 @@ STATE_DIR = (
 # move it, and read from the global install alone, so a checkout can neither add
 # a script that runs on every call nor drop one that must.
 MANDATORY_DIR = _PLUGIN_ROOT / "mandatory"
-MANDATORY_TIMEOUT = 5
-# AGENT_GUARD_IN_PROCESS=0 puts every check back in its own subprocess, for
-# bisecting a check that misbehaves only when it shares this interpreter.
-IN_PROCESS = (os.environ.get("AGENT_GUARD_IN_PROCESS") or "1").strip() not in ("0", "off")
 
 CONFIG_NAME = "config.toml"
 _ENV_PREFIX = "AGENT_GUARD_"
