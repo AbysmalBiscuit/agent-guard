@@ -114,7 +114,10 @@ def find_over_extraction(changeset, slot):
     cwd = changeset.cwd
     seen_file = changeset.seen_file
     roots = changeset.roots
-    if not (settings.test_only or settings.single_caller) or not have("ast-grep"):
+    if not (settings.test_only or settings.single_caller):
+        return AnalysisResult()
+    ast_grep = pinned_binary("ast-grep")
+    if ast_grep is None:
         return AnalysisResult()
     if seen_file is None:
         seen = set()
@@ -150,7 +153,7 @@ def find_over_extraction(changeset, slot):
             continue
 
         raw = run(
-            ["ast-grep", "scan", "-r", str(query), "--json=compact", rel],
+            [ast_grep, "scan", "-r", str(query), "--json=compact", rel],
             timeout=15,
             cwd=cwd,
         )

@@ -56,6 +56,18 @@ def doctor_hook(root, extra_env):
     )
 
 
+def audit_hook(root, extra_env):
+    return run_hook(
+        None,
+        args=("audit", str(root)),
+        capture_output=True,
+        text=True,
+        cwd=root,
+        env=hook_env(root, extra_env),
+        timeout=30,
+    )
+
+
 def init_repo(root):
     subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
     subprocess.run(["git", "config", "user.email", "agent-guard@example.com"], cwd=root, check=True)
@@ -98,6 +110,17 @@ def write_fallow(directory, marker):
         "fi\n"
         'printf "%s\\n" "$0" > "${FALLOW_WHICH_LOG}"\n'
         'printf "%s\\n" "{}"\n',
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+    return path
+
+
+def write_ast_grep(directory):
+    """A stand-in ast-grep that logs its path and args and finds nothing."""
+    path = pathlib.Path(directory) / "ast-grep"
+    path.write_text(
+        '#!/bin/sh\nprintf "%s %s\\n" "$0" "$*" >> "${AST_GREP_LOG}"\nprintf "[]\\n"\n',
         encoding="utf-8",
     )
     path.chmod(0o755)
@@ -191,6 +214,43 @@ class PinnedFallowTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(log.is_file(), result.stderr + result.stdout)
             self.assertEqual(log.read_text(encoding="utf-8").strip(), str(pinned_bin))
+
+
+class PinnedAstGrepTests(unittest.TestCase):
+    def test_audit_runs_the_mise_pinned_ast_grep_ahead_of_path(self):
+        """An older ast-grep earlier on PATH does not win. The over-extraction
+        scan in `audit` runs only the binary mise pins for this plugin."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            project = root / "project"
+            project.mkdir()
+            init_repo(project)
+            nearer = project / ".agents" / "plugins" / "agent-guard"
+            nearer.mkdir(parents=True)
+            (nearer / "config.toml").write_text("fallow = false\nlog = 0\n", encoding="utf-8")
+            older = root / "older"
+            older.mkdir()
+            write_ast_grep(older)
+            pinned = root / "pinned"
+            pinned.mkdir()
+            pinned_bin = write_ast_grep(pinned)
+            log = root / "ast-grep.txt"
+            mise = stub_mise(root / "mise", {"ast-grep": pinned_bin})
+            env = {
+                "PATH": os.pathsep.join([str(older), mise, os.environ.get("PATH", "")]),
+                "AST_GREP_LOG": str(log),
+            }
+
+            result = audit_hook(project, env)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(log.is_file(), result.stderr + result.stdout)
+            runs = log.read_text(encoding="utf-8").splitlines()
+        self.assertTrue(runs)
+        for run in runs:
+            self.assertTrue(run.startswith(f"{pinned_bin} scan "), run)
+        self.assertTrue(any("exported-symbols-typescript.yml" in run for run in runs), runs)
 
 
 if __name__ == "__main__":
