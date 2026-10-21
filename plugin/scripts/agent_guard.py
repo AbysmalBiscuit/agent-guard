@@ -14,6 +14,7 @@ Always exits 0 and speaks through the hookSpecificOutput JSON contract, so a
 broken check degrades to silence rather than wedging the session.
 """
 
+import ast
 import atexit
 import contextlib
 import hashlib
@@ -25,7 +26,9 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
+import time
 import tomllib
 from datetime import datetime
 from pathlib import Path
@@ -195,28 +198,43 @@ def have(tool):
     return shutil.which(tool) is not None
 
 
-# Last Python tool failure, empty when the last launch ran. doctor prints it.
-_python_tool_problem = ""
+# Last Python analysis problem. Stop and doctor are different processes, so the
+# note lives in STATE_DIR and doctor reads it back.
+PYTHON_TOOL_PROBLEM = "python-tool-problem"
+
+
+def record_python_problem(text):
+    path = STATE_DIR / PYTHON_TOOL_PROBLEM
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    except OSError:
+        pass
 
 
 def python_tool_problem():
-    return _python_tool_problem
+    path = STATE_DIR / PYTHON_TOOL_PROBLEM
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
-def tool_command(name):
+def tool_command(name, cwd):
     """The argv that launches one analysis tool, or None when it cannot start.
 
-    The tree's own copy wins. Otherwise uvx runs the version pinned here."""
-    global _python_tool_problem
+    The tree's own .venv copy wins, then a copy on PATH. Otherwise uvx runs the
+    version pinned here."""
+    own = Path(cwd) / ".venv" / "bin" / name
+    if own.is_file() and os.access(own, os.X_OK):
+        return [str(own)]
     found = shutil.which(name)
     if found:
-        _python_tool_problem = ""
         return [found]
     uvx = shutil.which("uvx")
     if uvx is None:
-        _python_tool_problem = f"{name}: uv is not on PATH, so the analysis stayed silent"
+        record_python_problem(f"{name}: uv is not on PATH, so the analysis stayed silent")
         return None
-    _python_tool_problem = ""
     version = PYTHON_TOOL_VERSIONS[name]
     return [uvx, "--from", f"{name}=={version}", name]
 
@@ -224,7 +242,6 @@ def tool_command(name):
 def run(cmd, timeout=20, cwd=None, stdin=None, env=None):
     """Stdout, or an empty string for any failure. Every external call is bounded
     so a wedged tool cannot outlive the hook."""
-    global _python_tool_problem
     try:
         p = subprocess.run(
             cmd,
@@ -238,12 +255,7 @@ def run(cmd, timeout=20, cwd=None, stdin=None, env=None):
             errors="replace",
             check=False,
         )
-    except subprocess.TimeoutExpired:
-        tool = Path(cmd[0]).name
-        _python_tool_problem = f"{tool} timed out after {timeout}s, so the analysis stayed silent"
-        return ""
-    except Exception:
-        _python_tool_problem = f"{cmd[0]} failed to start, so the analysis stayed silent"
+    except (subprocess.TimeoutExpired, Exception):
         return ""
     return p.stdout or ""
 
@@ -401,7 +413,10 @@ def discover_roots(cwd):
 
 
 def load_config(roots):
-    """Every root's config.toml, nearest last. A [python] table lands on python_<key>."""
+    """Every root's config.toml, nearest last.
+
+    Unknown keys are ignored. An unparsable file is skipped.
+    AGENT_GUARD_<KEY> overrides a file. A [python] table lands on python_<key>."""
     cfg = {}
     origins = {}
     for root in roots:
@@ -581,9 +596,6 @@ class PythonAnalysis:
         self.min_confidence = _int(get("python_vulture_min_confidence"), 60)
         self.origin = origins.get(f"python_{name}", "")
 
-    def on(self):
-        return self.enabled
-
 
 def _layers(value):
     """A TOML list, or the comma-separated string an environment override
@@ -686,8 +698,19 @@ def changed_lines(path, base, cwd):
         return None
     if not base:
         return None
+    # git cat-file wants a path inside the tree. Callers pass either form.
+    rel = path
+    prefix = str(cwd) + os.sep
+    if str(path).startswith(prefix):
+        rel = str(path)[len(prefix) :]
+    # A file the base never had is compared with the index. `git diff base`
+    # omits a staged copy, which would report no added lines at all.
+    if succeeds(["git", "cat-file", "-e", f"{base}:{rel}"], cwd=cwd):
+        diff_cmd = ["git", "diff", "--unified=0", base, "--", path]
+    else:
+        diff_cmd = ["git", "diff", "--unified=0", "--cached", "--", path]
     added = set()
-    diff = run(["git", "diff", "--unified=0", base, "--", path], cwd=cwd)
+    diff = run(diff_cmd, cwd=cwd)
     for line in diff.splitlines():
         m = _HUNK.match(line)
         if not m:
@@ -1190,11 +1213,9 @@ def find_over_extraction(changed, seen_file, roots, settings, cwd):
     return "\n".join(out)
 
 
-SOURCE_GLOBS = ("*.ts", "*.tsx", "*.js", "*.jsx", "*.py", "*.pyi")
+SOURCE_GLOBS = ("*.ts", "*.tsx", "*.js", "*.jsx")
+PYTHON_GLOBS = ("*.py", "*.pyi")
 
-_DEF_LINE = re.compile(
-    r"^(?:async\s+)?def\s+(\w+)\s*\(|^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\("
-)
 _VULTURE_HIT = re.compile(
     r"^(.*?):(\d+): unused (\w+) '([^']+)' \((\d+)% confidence\)", re.MULTILINE
 )
@@ -1210,31 +1231,27 @@ def _rel(path, cwd):
     return text[len(prefix) :] if text.startswith(prefix) else text
 
 
-def _function_lines(cwd, rel):
-    """Start line of each function the file defines, in source order."""
+def _python_spans(cwd, rel):
+    """Half-open [start, end) line span of each function, keyed by the name
+    complexipy prints: Class::method, or the bare name for a module function."""
     try:
-        lines = (cwd / rel).read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return []
-    found = []
-    for number, line in enumerate(lines, start=1):
-        match = _DEF_LINE.match(line.lstrip())
-        if match:
-            found.append((match.group(1) or match.group(2), number))
-    return found
-
-
-def _spans(cwd, rel):
-    """Half-open [start, end) line span of each function, by name."""
-    starts = _function_lines(cwd, rel)
-    try:
-        total = len((cwd / rel).read_text(encoding="utf-8", errors="replace").splitlines()) + 1
-    except OSError:
-        total = 0
+        source = (cwd / rel).read_text(encoding="utf-8", errors="replace")
+        tree = ast.parse(source)
+    except (OSError, SyntaxError, ValueError):
+        return {}
     spans = {}
-    for index, (name, start) in enumerate(starts):
-        end = starts[index + 1][1] if index + 1 < len(starts) else total
-        spans[name] = (start, end)
+
+    def walk(node, qual):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                name = f"{qual}::{child.name}" if qual else child.name
+                end = child.end_lineno if child.end_lineno is not None else child.lineno
+                spans[name] = (child.lineno, end + 1)
+                walk(child, name)
+            elif isinstance(child, ast.ClassDef):
+                walk(child, f"{qual}::{child.name}" if qual else child.name)
+
+    walk(tree, "")
     return spans
 
 
@@ -1255,9 +1272,8 @@ def _baselined_complexipy(cwd, analysis, rel, name):
     except (OSError, ValueError):
         return False
     for entry in data if isinstance(data, list) else []:
-        file_name = entry.get("file_name") or ""
-        entry_path = entry.get("path") or ""
-        if file_name != Path(rel).name and not entry_path.endswith(rel):
+        entry_path = str(entry.get("path") or "").replace("\\", "/")
+        if Path(entry_path).as_posix() != Path(rel).as_posix():
             continue
         for function in entry.get("functions") or []:
             if function.get("name") == name:
@@ -1276,46 +1292,68 @@ def _selected(changed, analysis, settings, cwd):
     return selected
 
 
-def find_complexipy(changed, analysis, settings, cwd, base):
+def _run_python_tool(cmd, timeout, cwd, name):
+    """Stdout of one analysis tool. A timeout or a failed start is recorded for
+    doctor and returns empty, so the audit stays silent."""
+    try:
+        p = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=cwd,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        record_python_problem(f"{name} timed out after {timeout}s, so the analysis stayed silent")
+        return ""
+    except Exception:
+        record_python_problem(f"{name} failed to start, so the analysis stayed silent")
+        return ""
+    return p.stdout or ""
+
+
+def find_complexipy(changed, analysis, settings, cwd, base, timeout):
     """Cognitive complexity the changeset introduced, above the tree's threshold."""
     files = _selected(changed, analysis, settings, cwd)
     if not files:
         return ""
-    cmd = tool_command("complexipy")
+    cmd = tool_command("complexipy", cwd)
     if cmd is None:
         return ""
-    out_dir = STATE_DIR / "complexipy-out"
     try:
-        out_dir.mkdir(parents=True, exist_ok=True)
+        out_dir = tempfile.TemporaryDirectory(prefix="complexipy-")
     except OSError:
         return ""
-    raw = run(
-        [
-            *cmd,
-            *files,
-            "--max-complexity-allowed",
-            str(analysis.max_complexity),
-            "--failed",
-            "--output-format",
-            "json",
-            "--output",
-            str(out_dir),
-            "--color",
-            "no",
-            "--snapshot-ignore",
-            "--cache-dir",
-            str(STATE_DIR / "complexipy-cache"),
-        ],
-        timeout=analysis.timeout,
-        cwd=cwd,
-    )
-    report = out_dir / "complexipy-results.json"
-    if not report.is_file() and not raw.strip():
-        return ""
-    try:
-        rows = json.loads(report.read_text(encoding="utf-8")) if report.is_file() else []
-    except (OSError, ValueError):
-        rows = []
+    with out_dir:
+        _run_python_tool(
+            [
+                *cmd,
+                *files,
+                "--max-complexity-allowed",
+                str(analysis.max_complexity),
+                "--failed",
+                "--output-format",
+                "json",
+                "--output",
+                out_dir.name,
+                "--color",
+                "no",
+                "--snapshot-ignore",
+                "--cache-dir",
+                str(STATE_DIR / "complexipy-cache"),
+            ],
+            timeout=timeout,
+            cwd=cwd,
+            name="complexipy",
+        )
+        report = Path(out_dir.name) / "complexipy-results.json"
+        try:
+            rows = json.loads(report.read_text(encoding="utf-8")) if report.is_file() else []
+        except (OSError, ValueError):
+            rows = []
     lines = []
     for row in rows:
         rel = _rel(row.get("path") or "", cwd)
@@ -1327,7 +1365,7 @@ def find_complexipy(changed, analysis, settings, cwd, base):
             continue
         if _baselined_complexipy(cwd, analysis, rel, name):
             continue
-        span = _spans(cwd, rel).get(name)
+        span = _python_spans(cwd, rel).get(name)
         added = changed_lines(str(cwd / rel), base, cwd)
         if span is None or not _touched(span, added):
             continue
@@ -1338,26 +1376,20 @@ def find_complexipy(changed, analysis, settings, cwd, base):
     return "\n".join(lines[: settings.max_findings])
 
 
-def find_lizard(changed, analysis, settings, cwd, base):
+def find_lizard(changed, analysis, settings, cwd, base, timeout):
     """Cyclomatic complexity, length, or parameter count the changeset introduced."""
     files = _selected(changed, analysis, settings, cwd)
     if not files:
         return ""
-    cmd = tool_command("lizard")
+    cmd = tool_command("lizard", cwd)
     if cmd is None:
         return ""
-    languages = []
-    if ".py" in analysis.extensions:
-        languages.extend(["-l", "python"])
-    if ".ts" in analysis.extensions:
-        languages.extend(["-l", "typescript"])
     # A missing whitelist file makes lizard print nothing, so pass one only when it exists.
     whitelist = cwd / analysis.baseline
     baseline_args = ["-W", str(whitelist)] if whitelist.is_file() else []
-    raw = run(
+    raw = _run_python_tool(
         [
             *cmd,
-            *languages,
             "-C",
             str(analysis.ccn),
             "-L",
@@ -1368,8 +1400,9 @@ def find_lizard(changed, analysis, settings, cwd, base):
             *baseline_args,
             *files,
         ],
-        timeout=analysis.timeout,
+        timeout=timeout,
         cwd=cwd,
+        name="lizard",
     )
     lines = []
     for match in _LIZARD_WARN.finditer(raw):
@@ -1377,8 +1410,18 @@ def find_lizard(changed, analysis, settings, cwd, base):
         name = match.group(3)
         ccn, params, length = (int(match.group(i)) for i in (4, 5, 6))
         start = int(match.group(2))
+        # lizard prints a bare name. The report uses the qualified name when
+        # the file has one, so a method does not collide with another.
+        qualified = name
+        if rel.endswith((".py", ".pyi")):
+            for candidate, span in _python_spans(cwd, rel).items():
+                if span[0] == start and candidate.split("::")[-1] == name:
+                    qualified = candidate
+                    break
+        # lizard prints the function's start line and its length. The span is
+        # those lines; a name lookup would collide on same-named methods.
+        span = (start, start + length)
         added = changed_lines(str(cwd / rel), base, cwd)
-        span = _spans(cwd, rel).get(name, (start, start + 1))
         if not _touched(span, added):
             continue
         reasons = []
@@ -1390,24 +1433,25 @@ def find_lizard(changed, analysis, settings, cwd, base):
             reasons.append(f"{params} parameters")
         if not reasons:
             continue
-        lines.append(f"  {rel}:{start}  {name} has {', '.join(reasons)}. Split it.")
+        lines.append(f"  {rel}:{start}  {qualified} has {', '.join(reasons)}. Split it.")
     return "\n".join(lines[: settings.max_findings])
 
 
-def find_vulture(changed, analysis, settings, cwd, base):
+def find_vulture(changed, analysis, settings, cwd, base, timeout):
     """Dead code on a line the branch added."""
     files = _selected(changed, analysis, settings, cwd)
     if not files:
         return ""
-    cmd = tool_command("vulture")
+    cmd = tool_command("vulture", cwd)
     if cmd is None:
         return ""
     whitelist = cwd / analysis.baseline
     paths = [*files, str(whitelist)] if whitelist.is_file() else files
-    raw = run(
+    raw = _run_python_tool(
         [*cmd, *paths, "--min-confidence", str(analysis.min_confidence)],
-        timeout=analysis.timeout,
+        timeout=timeout,
         cwd=cwd,
+        name="vulture",
     )
     # An import outranks a function, which outranks a name the file does use.
     rank = {"import": 0, "function": 1, "class": 1, "method": 1, "variable": 2, "attribute": 3}
@@ -1432,33 +1476,52 @@ def find_vulture(changed, analysis, settings, cwd, base):
     return "\n".join(lines[: settings.max_findings])
 
 
-def find_python(changed, settings, cwd, base):
-    """Findings from the analyses this tree turned on."""
+def find_python(changed, settings, cwd, base, budget):
+    """Findings from the analyses this tree turned on.
+
+    `budget` is seconds left under the Stop hook's own deadline. Each tool gets
+    only what remains, and a tool with none left is skipped and recorded."""
     sections = []
     runners = {
         "complexipy": find_complexipy,
         "lizard": find_lizard,
         "vulture": find_vulture,
     }
+    started = time.monotonic()
     for name, runner in runners.items():
         analysis = settings.python[name]
-        if not analysis.on():
+        if not analysis.enabled:
             continue
-        text = runner(changed, analysis, settings, cwd, base)
+        left = budget - (time.monotonic() - started)
+        if left <= 0:
+            record_python_problem(
+                f"{name}: no time left under the hook deadline, so the analysis stayed silent"
+            )
+            continue
+        text = runner(changed, analysis, settings, cwd, base, min(analysis.timeout, left))
         if text:
             sections.append(text)
     return "\n".join(sections)
 
 
-def changed_files(base, cwd):
+def source_globs(settings):
+    """File types the changeset listing reads. Python globs join only when a
+    tree turned a Python analysis on, so an opted-out tree keeps its old list."""
+    if any(analysis.enabled for analysis in settings.python.values()):
+        return (*SOURCE_GLOBS, *PYTHON_GLOBS)
+    return SOURCE_GLOBS
+
+
+def changed_files(base, cwd, globs):
     """What the branch touched, including what git does not track yet. A file an
     agent wrote and has not committed never appears in `git diff`, and it is the
     likeliest place for a copy of something that already exists: written from
     scratch by someone who did not find the original. --exclude-standard keeps
     ignored trees such as node_modules out."""
     listings = (
-        ["git", "diff", "--name-only", base, "--", *SOURCE_GLOBS],
-        ["git", "ls-files", "--others", "--exclude-standard", "--", *SOURCE_GLOBS],
+        ["git", "diff", "--name-only", base, "--", *globs],
+        ["git", "diff", "--name-only", "--", *globs],
+        ["git", "ls-files", "--others", "--exclude-standard", "--", *globs],
     )
     out, seen = [], set()
     for cmd in listings:
@@ -1470,7 +1533,7 @@ def changed_files(base, cwd):
     return out[:200]
 
 
-def changeset_fingerprint(base, changed, cwd):
+def changeset_fingerprint(base, changed, cwd, globs):
     """Everything a report would be derived from, hashed. The diff alone cannot
     stand in for it: an untracked file's content is absent from the diff, so a
     second new file after a first report would read as no change at all and the
@@ -1478,8 +1541,9 @@ def changeset_fingerprint(base, changed, cwd):
     while leaving nothing on disk to read."""
     digest = hashlib.sha256()
     digest.update(
-        run(["git", "diff", base, "--", *SOURCE_GLOBS], cwd=cwd).encode("utf-8", "replace")
+        run(["git", "diff", base, "--", *globs], cwd=cwd).encode("utf-8", "replace")
     )
+    digest.update(run(["git", "diff", "--", *globs], cwd=cwd).encode("utf-8", "replace"))
     for rel in changed:
         digest.update(rel.encode("utf-8", "replace"))
         path = cwd / rel
@@ -1497,13 +1561,13 @@ def check_changeset(event, session, agent_type, roots, settings, cwd):
         emit_silent()
 
     base = git_base(settings, cwd)
-    changed = changed_files(base, cwd)
+    globs = source_globs(settings)
+    changed = changed_files(base, cwd, globs)
     # Before the source-glob gate: the duplication audit reads TS and JS, but a
     # changeset-check speaks for whatever files its own rule covers, and a
     # branch that touched only markdown or shell still has to answer for them.
     violations = run_changeset_checks(base, roots, cwd)
-    python = find_python(changed, settings, cwd, base)
-    if not changed and not violations and not python:
+    if not changed and not violations:
         emit_silent()
 
     sdir = STATE_DIR / session
@@ -1517,12 +1581,11 @@ def check_changeset(event, session, agent_type, roots, settings, cwd):
             seen_file.touch()
 
     # Skip re-running when the changeset has not moved since the last report.
-    fingerprint = (
-        changeset_fingerprint(base, changed, cwd)
-        + hashlib.sha1(
-            (violations + python).encode("utf-8", "replace"), usedforsecurity=False
-        ).hexdigest()
-    )
+    # Python tools run after this skip: a repeat of the same diff must not pay
+    # for them again.
+    fingerprint = changeset_fingerprint(base, changed, cwd, globs) + hashlib.sha1(
+        violations.encode("utf-8", "replace"), usedforsecurity=False
+    ).hexdigest()
     last = sdir / "last-diff"
     try:
         if last.is_file() and last.read_text(encoding="utf-8").strip() == fingerprint:
@@ -1532,6 +1595,9 @@ def check_changeset(event, session, agent_type, roots, settings, cwd):
         pass
 
     who = f"Subagent '{agent_type}'" if agent_type else "This agent"
+    # fallow and the Python tools share one deadline under the hook's 60s.
+    # Each Python tool gets only the time still left.
+    audit_deadline = time.monotonic() + 55
     dupes = find_duplication(base, seen_file, settings, cwd)
     extraction = find_over_extraction(changed, seen_file, roots, settings, cwd)
     sections = []
@@ -1551,6 +1617,7 @@ def check_changeset(event, session, agent_type, roots, settings, cwd):
             "than one caller, or a name that explains something the inlined code "
             "would not."
         )
+    python = find_python(changed, settings, cwd, base, audit_deadline - time.monotonic())
     if python:
         sections.append(
             f"{who} introduced findings the tree asked this audit to report:\n\n{python}\n"
@@ -1623,17 +1690,42 @@ def doctor(cwd):
         print("  rg missing       -> over-extraction check skipped")
     print("  python analyses:")
     for name, analysis in settings.python.items():
-        state = "on" if analysis.on() else "off"
+        state = "on" if analysis.enabled else "off"
         origin = analysis.origin or "default"
         print(f"    {name:<12} {state}  from {origin}")
-        print(f"      extensions : {analysis.extensions}")
-        print(f"      baseline   : {analysis.baseline}")
+        for label, key, value in (
+            ("extensions", f"python_{name}_extensions", analysis.extensions),
+            ("baseline", f"python_{name}_baseline", analysis.baseline),
+            ("timeout", "python_timeout", analysis.timeout),
+        ):
+            where = settings.origins.get(key, "default")
+            print(f"      {label:<11}: {value}  from {where}")
+        if name == "complexipy":
+            where = settings.origins.get("python_complexipy_max", "default")
+            print(f"      max        : {analysis.max_complexity}  from {where}")
+        elif name == "lizard":
+            for label, key, value in (
+                ("ccn", "python_lizard_ccn", analysis.ccn),
+                ("length", "python_lizard_length", analysis.length),
+                ("arguments", "python_lizard_arguments", analysis.arguments),
+            ):
+                print(
+                    f"      {label:<11}: {value}  from {settings.origins.get(key, 'default')}"
+                )
+        elif name == "vulture":
+            print(
+                "      confidence : "
+                f"{analysis.min_confidence}  from "
+                f"{settings.origins.get('python_vulture_min_confidence', 'default')}"
+            )
     problem = python_tool_problem()
     if problem:
         print(f"  python tools : {problem}")
-    elif any(analysis.on() for analysis in settings.python.values()):
+    elif any(analysis.enabled for analysis in settings.python.values()):
         missing = [
-            name for name in PYTHON_ANALYSES if settings.python[name].on() and not have(name)
+            name
+            for name in PYTHON_ANALYSES
+            if settings.python[name].enabled and not have(name)
         ]
         if missing and not have("uvx"):
             print("  python tools : uv is not on PATH, so " + ", ".join(missing) + " stays silent")

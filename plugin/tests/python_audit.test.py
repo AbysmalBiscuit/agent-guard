@@ -48,6 +48,70 @@ NOISY = textwrap.dedent(
     """
 )
 
+OLD = textwrap.dedent(
+    """\
+    class Box:
+        def kept(self, a, b, c, d, e, f):
+            x = 0
+            if a:
+                if b:
+                    if c:
+                        if d:
+                            for i in range(3):
+                                if i:
+                                    x += 1
+                                else:
+                                    x -= 1
+                            if e:
+                                x += 2
+                        elif f:
+                            x += 3
+                    else:
+                        x += 4
+                else:
+                    x += 5
+            else:
+                x += 6
+            return x
+
+
+    def kept_unused():
+        return 9
+    """
+)
+
+FRESH = textwrap.dedent(
+    """\
+    class Box:
+        def fresh(self, a, b, c, d, e, f):
+            x = 0
+            if a:
+                if b:
+                    if c:
+                        if d:
+                            for i in range(3):
+                                if i:
+                                    x += 1
+                                else:
+                                    x -= 1
+                            if e:
+                                x += 2
+                        elif f:
+                            x += 3
+                    else:
+                        x += 4
+                else:
+                    x += 5
+            else:
+                x += 6
+            return x
+
+
+    def fresh_unused():
+        return 3
+    """
+)
+
 CALM = textwrap.dedent(
     """\
     def used(value):
@@ -60,13 +124,20 @@ CALM = textwrap.dedent(
 )
 
 
-def commit(project, name, text):
-    path = project / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+def commit_files(project, files):
     if not (project / ".git").exists():
         subprocess.run(["git", "init", "--quiet"], cwd=project, check=True)
-    subprocess.run(["git", "add", "--", name], cwd=project, check=True)
+    names = []
+    for name, text in files:
+        path = project / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        names.append(name)
+    subprocess.run(["git", "add", "--", *names], cwd=project, check=True)
+
+
+def commit(project, name, text):
+    commit_files(project, [(name, text)])
     subprocess.run(
         [
             "git",
@@ -94,11 +165,12 @@ def doctor_without_uv(_project, checkout):
         return doctor(fresh, checkout, env_extra={"PATH": "/usr/bin:/bin"})
 
 
-def doctor(project, checkout, env_extra=None):
-    """Stdout of `agent_guard.py doctor` inside a tree that opted in."""
-    nearer = project / ".agents" / "plugins" / "agent-guard"
-    nearer.mkdir(parents=True)
-    (nearer / "config.toml").write_text(checkout, encoding="utf-8")
+def hook_env(project, checkout=None, env_extra=None, config_dir=None):
+    """Environment one hook call runs in. `checkout` is the tree's config.toml."""
+    if checkout is not None:
+        nearer = project / ".agents" / "plugins" / "agent-guard"
+        nearer.mkdir(parents=True, exist_ok=True)
+        (nearer / "config.toml").write_text(checkout, encoding="utf-8")
     env = os.environ.copy()
     for key in list(env):
         if key.startswith("AGENT_GUARD_"):
@@ -107,11 +179,17 @@ def doctor(project, checkout, env_extra=None):
     home.mkdir(exist_ok=True)
     env.update(
         HOME=str(home),
-        AGENT_GUARD_CONFIG_DIR=str(PLUGIN),
+        AGENT_GUARD_CONFIG_DIR=str(config_dir or PLUGIN),
         XDG_STATE_HOME=str(project.parent / "state"),
         AGENT_GUARD_LOG="0",
     )
     env.update(env_extra or {})
+    return env
+
+
+def doctor(project, checkout, env_extra=None):
+    """Stdout of `agent_guard.py doctor` inside a tree that opted in."""
+    env = hook_env(project, checkout, env_extra)
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "doctor"],
         capture_output=True,
@@ -128,23 +206,7 @@ def doctor(project, checkout, env_extra=None):
 def stop(project, checkout=None, env_extra=None, config_dir=None):
     """Stdout of one Stop call against `project`. `checkout` is the tree's
     config.toml. None leaves only the global layer."""
-    if checkout is not None:
-        nearer = project / ".agents" / "plugins" / "agent-guard"
-        nearer.mkdir(parents=True)
-        (nearer / "config.toml").write_text(checkout, encoding="utf-8")
-    env = os.environ.copy()
-    for key in list(env):
-        if key.startswith("AGENT_GUARD_"):
-            env.pop(key)
-    home = project.parent / "home"
-    home.mkdir(exist_ok=True)
-    env.update(
-        HOME=str(home),
-        AGENT_GUARD_CONFIG_DIR=str(config_dir or PLUGIN),
-        XDG_STATE_HOME=str(project.parent / "state"),
-        AGENT_GUARD_LOG="0",
-    )
-    env.update(env_extra or {})
+    env = hook_env(project, checkout, env_extra, config_dir)
     payload = {
         "session_id": "python-audit",
         "cwd": str(project),
@@ -190,47 +252,50 @@ class PythonAuditTests(unittest.TestCase):
 
     def test_complexipy_reports_only_the_function_the_changeset_touched(self):
         out = self.pair("complexipy")
-        self.assertIn("touched.py", out)
-        self.assertIn("noisy", out)
+        self.assertIn("work.py", out)
+        self.assertIn("Box::fresh", out)
         self.assertIn("cognitive complexity 31", out)
-        self.assertNotIn("untouched.py", out)
-        self.assertNotIn("also_noisy", out)
+        self.assertNotIn("Box::kept", out)
+        self.assertNotIn("parked.py", out)
 
     def test_lizard_reports_only_the_function_the_changeset_touched(self):
         out = self.pair("lizard")
-        self.assertIn("touched.py", out)
-        self.assertIn("noisy", out)
-        self.assertIn("6 parameters", out)
-        self.assertNotIn("untouched.py", out)
-        self.assertNotIn("also_noisy", out)
+        self.assertIn("work.py", out)
+        self.assertIn("Box::fresh", out)
+        self.assertIn("7 parameters", out)
+        self.assertNotIn("Box::kept", out)
+        self.assertNotIn("parked.py", out)
 
     def test_vulture_reports_only_dead_code_the_branch_added(self):
         out = self.pair("vulture")
-        self.assertIn("touched.py", out)
-        self.assertIn("unused_helper", out)
+        self.assertIn("work.py", out)
+        self.assertIn("fresh_unused", out)
         self.assertIn("dead code", out)
-        self.assertNotIn("untouched.py", out)
-        self.assertNotIn("unused_old", out)
+        self.assertNotIn("kept_unused", out)
+        self.assertNotIn("parked.py", out)
 
     def test_complexipy_stays_silent_on_a_baselined_function(self):
         snapshot = textwrap.dedent(
             """\
             [
               {
-                "path": "touched.py",
-                "file_name": "touched.py",
-                "functions": [{"name": "noisy", "complexity": 31}]
+                "path": "work.py",
+                "functions": [{"name": "Box::fresh", "complexity": 31}]
+              },
+              {
+                "path": "utils.py",
+                "functions": [{"name": "fresh", "complexity": 31}]
               }
             ]
             """
         )
         out = self.pair("complexipy", extra=[("complexipy-snapshot.json", snapshot)])
-        self.assertNotIn("noisy", out)
+        self.assertNotIn("Box::fresh", out)
         self.assertNotIn("cognitive complexity", out)
 
     def test_lizard_stays_silent_on_a_baselined_function(self):
-        out = self.pair("lizard", extra=[("whitelizard.txt", "noisy\n")])
-        self.assertNotIn("noisy", out)
+        out = self.pair("lizard", extra=[("whitelizard.txt", "fresh\n")])
+        self.assertNotIn("Box::fresh", out)
         self.assertNotIn("parameters", out)
 
     def test_doctor_names_the_analyses_a_tree_turned_on_and_where(self):
@@ -249,8 +314,10 @@ class PythonAuditTests(unittest.TestCase):
         self.assertIn("complexipy   on", out)
         self.assertIn("vulture      on", out)
         self.assertIn("lizard       off", out)
-        self.assertIn(str(project / ".agents" / "plugins" / "agent-guard"), out)
-        self.assertIn("dead.py", out)
+        self.assertIn("extensions : \\.py$  from " + str(project / ".agents" / "plugins" / "agent-guard"), out)
+        self.assertIn("baseline   : dead.py  from " + str(project / ".agents" / "plugins" / "agent-guard"), out)
+        self.assertIn("timeout    : 20", out)
+        self.assertIn("from default", out)
         without_uv = doctor_without_uv(project, checkout)
         self.assertIn("uv is not on PATH", without_uv)
         self.assertIn("stays silent", without_uv)
@@ -264,14 +331,14 @@ class PythonAuditTests(unittest.TestCase):
             project = pathlib.Path(directory) / "project"
             project.mkdir()
             commit(project, "seed.py", CALM)
-            (project / "touched.py").write_text(NOISY, encoding="utf-8")
+            (project / "work.py").write_text(NOISY, encoding="utf-8")
             (project / "notes.txt").write_text("not a source file\n", encoding="utf-8")
             self.assertEqual(stop(project, blank), "")
         with tempfile.TemporaryDirectory() as directory:
             project = pathlib.Path(directory) / "project"
             project.mkdir()
             commit(project, "seed.py", CALM)
-            (project / "touched.py").write_text(broken, encoding="utf-8")
+            (project / "work.py").write_text(broken, encoding="utf-8")
             self.assertEqual(stop(project, tree_config("complexipy")), "")
 
     def test_lizard_on_typescript_stays_quiet_on_python(self):
@@ -289,20 +356,24 @@ class PythonAuditTests(unittest.TestCase):
             project = pathlib.Path(directory) / "project"
             project.mkdir()
             commit(project, "seed.py", CALM)
-            (project / "touched.py").write_text(NOISY, encoding="utf-8")
+            (project / "work.py").write_text(NOISY, encoding="utf-8")
             out = stop(project, checkout)
-        self.assertNotIn("noisy", out)
+        self.assertNotIn("Box::fresh", out)
         self.assertNotIn("parameters", out)
 
-    def test_a_timeout_leaves_the_audit_silent(self):
-        """A tool that outruns its timeout adds no finding."""
+    def test_a_timeout_leaves_the_audit_silent_and_doctor_shows_it(self):
+        """A tool that outruns its timeout adds no finding. The next doctor
+        run, a separate process, still names that timeout."""
         checkout = "fallow = false\nlog = 0\n[python]\ncomplexipy = true\ntimeout = 0.01\n"
         with tempfile.TemporaryDirectory() as directory:
             project = pathlib.Path(directory) / "project"
             project.mkdir()
             commit(project, "seed.py", CALM)
-            (project / "touched.py").write_text(NOISY, encoding="utf-8")
+            (project / "work.py").write_text(NOISY, encoding="utf-8")
             self.assertEqual(stop(project, checkout), "")
+            reported = doctor(project, checkout)
+        self.assertIn("complexipy timed out", reported)
+        self.assertIn("stayed silent", reported)
 
     def test_a_missing_uv_leaves_the_audit_silent(self):
         """uv and the tools are off PATH. The tree asked for an analysis, and
@@ -311,7 +382,7 @@ class PythonAuditTests(unittest.TestCase):
             project = pathlib.Path(directory) / "project"
             project.mkdir()
             commit(project, "seed.py", CALM)
-            (project / "touched.py").write_text(NOISY, encoding="utf-8")
+            (project / "work.py").write_text(NOISY, encoding="utf-8")
             out = stop(
                 project,
                 tree_config("complexipy"),
@@ -320,17 +391,19 @@ class PythonAuditTests(unittest.TestCase):
         self.assertEqual(out, "")
 
     def test_vulture_stays_silent_on_a_baselined_name(self):
-        out = self.pair("vulture", extra=[("vulture-whitelist.py", "unused_helper\n")])
-        self.assertNotIn("unused_helper", out)
+        out = self.pair("vulture", extra=[("vulture-whitelist.py", "fresh_unused\n")])
+        self.assertNotIn("fresh_unused", out)
 
     def pair(self, analysis, extra=None):
-        """One analysis on. The changeset adds touched.py. An identical
-        offender is already committed in untouched.py."""
+        """One analysis on. work.py already holds an old offender, including a
+        class method. The changeset adds a second offender in that same file,
+        and an identical offender already committed in parked.py."""
         with tempfile.TemporaryDirectory() as directory:
             project = pathlib.Path(directory) / "project"
             project.mkdir()
-            commit(project, "untouched.py", NOISY)
-            (project / "touched.py").write_text(NOISY, encoding="utf-8")
+            commit(project, "work.py", OLD)
+            commit(project, "parked.py", NOISY)
+            (project / "work.py").write_text(OLD + "\n" + FRESH, encoding="utf-8")
             for name, text in extra or []:
                 (project / name).write_text(text, encoding="utf-8")
             return stop(project, tree_config(analysis))

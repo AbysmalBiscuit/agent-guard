@@ -97,7 +97,50 @@ scope = "diff"
 # checking it.
 extensions = '\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|pyi|rs|go|sh|bash|sql|toml|ya?ml|md|mdx|markdown)$'
 
-# [python] complexipy, lizard, vulture: each off until a tree sets it true. The README lists each setting, its default and its baseline file.
+# Off until a tree sets it true. Findings above complexipy_max.
+# complexipy = false
+
+# File types complexipy reads. Default '\.py$'.
+# complexipy_extensions = '\.py$'
+
+# Functions in this snapshot stay silent.
+# complexipy_baseline = "complexipy-snapshot.json"
+
+# Cognitive complexity a function may reach. Default 15.
+# complexipy_max = 15
+
+# Off until a tree sets it true. CCN, length, parameter count.
+# lizard = false
+
+# File types lizard reads. Default '\.(py|ts|tsx)$'.
+# lizard_extensions = '\.(py|ts|tsx)$'
+
+# Function names in this file stay silent.
+# lizard_baseline = "whitelizard.txt"
+
+# Cyclomatic complexity a function may reach. Default 15.
+# lizard_ccn = 15
+
+# Function length a function may reach. Default 1000.
+# lizard_length = 1000
+
+# Parameter count a function may reach. Default 100.
+# lizard_arguments = 100
+
+# Off until a tree sets it true. Dead code on added lines.
+# vulture = false
+
+# File types vulture reads. Default '\.py$'.
+# vulture_extensions = '\.py$'
+
+# Names in this file stay silent.
+# vulture_baseline = "vulture-whitelist.py"
+
+# Lowest confidence vulture reports. Default 60.
+# vulture_min_confidence = 60
+
+# Seconds one analysis may run. Default 20.
+# timeout = 20
 
 # Paths the hook skips entirely: code that is generated rather than written, and
 # vendored code the tree does not own. This holds only the shapes every
