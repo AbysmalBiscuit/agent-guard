@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.6](https://github.com/AbysmalBiscuit/agent-guard/compare/v0.1.5...v0.1.6) (2026-10-21)
+
+
+### Features
+
+* check changed file length ([#29](https://github.com/AbysmalBiscuit/agent-guard/issues/29)) ([315724f](https://github.com/AbysmalBiscuit/agent-guard/commit/315724f3e0b00fade4bdee2cd162bdd41f4333c8))
+
+
+### Bug Fixes
+
+* **plugin:** run jscpd on selected file types ([#31](https://github.com/AbysmalBiscuit/agent-guard/issues/31)) ([1301f59](https://github.com/AbysmalBiscuit/agent-guard/commit/1301f59dd6948369a85345f75b1564d9422a441d))
+
 ## [0.1.5](https://github.com/AbysmalBiscuit/agent-guard/compare/v0.1.4...v0.1.5) (2026-10-21)
 
 
