@@ -123,8 +123,6 @@ def _merge(named):
     """One decision from named check results. A denial outranks an ask."""
     advice, asks, denials = [], [], []
     for name, decision in named:
-        if not isinstance(decision, Decision):
-            continue
         text = (decision.context or "").strip()
         verdict = "silent"
         if decision.permission == "deny":
