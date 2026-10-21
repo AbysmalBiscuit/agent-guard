@@ -1,4 +1,4 @@
-# agent-guard settings, read by scripts/agent_guard.py beside this file.
+# agent-guard settings, read by the agent_guard package beside this file.
 #
 # This is the global layer, and on its own it does nothing: the hook runs only
 # where some directory at or above the working directory holds
@@ -12,7 +12,7 @@
 # nearer one tightens any setting below without editing it. An
 # AGENT_GUARD_<KEY> environment variable outranks every file for one run.
 #
-# Run `python3 <plugin root>/scripts/agent_guard.py doctor` inside a tree to
+# Run `python3 <plugin root>/agent_guard doctor` inside a tree to
 # list the roots actually found.
 
 # Layers that still run where no tree has opted in. A tree opts in by carrying
