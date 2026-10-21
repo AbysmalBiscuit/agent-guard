@@ -24,7 +24,7 @@ from .contract import (
     finding_line,
     git_base,
 )
-from .paths import _PLUGIN_ROOT, CONFIG_DIR
+from .paths import CONFIG_DIR, PLUGIN_ROOT
 from .process import run, run_full
 from .tools import pinned_binary
 
@@ -59,7 +59,7 @@ def _bounded(seconds):
 
 def _installed():
     """A repointed install runs no built-in check except the mandatory ones."""
-    return CONFIG_DIR == _PLUGIN_ROOT
+    return CONFIG_DIR == PLUGIN_ROOT
 
 
 def _check_name(check):

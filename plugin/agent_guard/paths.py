@@ -7,10 +7,9 @@ import os
 import re
 from pathlib import Path
 
-_PLUGIN_ROOT = Path(__file__).resolve().parent.parent
-PLUGIN_ROOT = _PLUGIN_ROOT
-SCRIPTS_DIR = _PLUGIN_ROOT / "scripts"
-CONFIG_DIR = Path(os.environ.get("AGENT_GUARD_CONFIG_DIR") or _PLUGIN_ROOT)
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+SCRIPTS_DIR = PLUGIN_ROOT / "scripts"
+CONFIG_DIR = Path(os.environ.get("AGENT_GUARD_CONFIG_DIR") or PLUGIN_ROOT)
 STATE_DIR = (
     Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "agent-guard"
 )
