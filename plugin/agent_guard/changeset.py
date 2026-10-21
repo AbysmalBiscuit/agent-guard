@@ -713,10 +713,9 @@ def find_python(changed, settings, cwd, base, budget, seen_file=None):
 def source_globs(settings):
     """File types the changeset listing reads. Python globs join only when a
     tree turned a Python analysis on, so an opted-out tree keeps its old list."""
-    globs = SOURCE_GLOBS
     if any(analysis.enabled for analysis in settings.python.values()):
-        globs = (*globs, *PYTHON_GLOBS)
-    return globs
+        return (*SOURCE_GLOBS, *PYTHON_GLOBS)
+    return SOURCE_GLOBS
 
 
 def _line_count(path):
