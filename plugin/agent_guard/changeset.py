@@ -491,13 +491,11 @@ def render_clone_groups(groups, seen_file, settings):
     return format_fresh_groups(kept, seen_file, settings)
 
 
-def jscpd_pattern(selected):
-    """jscpd --pattern for the suffixes of the selected files.
+def jscpd_pattern(suffixes):
+    """jscpd --pattern for the suffixes the extension regex selects.
 
     One suffix is `**/*.<suffix>`. Several are `**/*.{<suffixes>}`. A suffix
     outside jscpd's format table still scans: the pattern names the file."""
-    suffixes = list(dict.fromkeys(Path(rel).suffix.lstrip(".") for rel in selected))
-    suffixes = [suffix for suffix in suffixes if suffix.isascii() and suffix.isalnum()]
     if not suffixes:
         return ""
     if len(suffixes) == 1:
@@ -525,6 +523,22 @@ def jscpd_suffixes(ext_re):
     return list(dict.fromkeys(written))
 
 
+def jscpd_scan_files(changed, ext_re, cwd):
+    """Worktree paths the extension regex selects, including unchanged files."""
+    paths = set(changed)
+    for line in run(["git", "ls-files", "-z"], cwd=cwd).split("\0"):
+        rel = line.strip()
+        if rel:
+            paths.add(rel)
+    return [rel for rel in paths if ext_re.search(rel)]
+
+
+def jscpd_scan_suffixes(paths):
+    """The suffix list, computed once, for the pattern and the cross-format group."""
+    suffixes = list(dict.fromkeys(Path(rel).suffix.lstrip(".") for rel in paths))
+    return [suffix for suffix in suffixes if suffix.isascii() and suffix.isalnum()]
+
+
 def find_jscpd(changed, analysis, settings, cwd, base, timeout, seen_file):
     """Clone groups among the file types this analysis reads, when one
     instance sits on an added line."""
@@ -535,10 +549,10 @@ def find_jscpd(changed, analysis, settings, cwd, base, timeout, seen_file):
     if cmd is None:
         return ""
     added = {rel: changed_lines(str(cwd / rel), base, cwd) for rel in selected}
-    pattern = jscpd_pattern(selected)
+    suffixes = jscpd_scan_suffixes(jscpd_scan_files(changed, analysis.ext_re, cwd))
+    pattern = jscpd_pattern(suffixes)
     if not pattern:
         return ""
-    suffixes = [Path(rel).suffix.lstrip(".") for rel in selected]
     cross = jscpd_cross_formats(suffixes)
     try:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
