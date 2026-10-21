@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.7](https://github.com/AbysmalBiscuit/agent-guard/compare/v0.1.6...v0.1.7) (2026-10-21)
+
+
+### Features
+
+* **plugin:** run the Stop audit by hand ([#40](https://github.com/AbysmalBiscuit/agent-guard/issues/40)) ([bc2f365](https://github.com/AbysmalBiscuit/agent-guard/commit/bc2f3659c482abd0ba5c3f58167cdaea9e7b6a02)), closes [#37](https://github.com/AbysmalBiscuit/agent-guard/issues/37)
+
+
+### Bug Fixes
+
+* keep the former hook path working ([#36](https://github.com/AbysmalBiscuit/agent-guard/issues/36)) ([f516008](https://github.com/AbysmalBiscuit/agent-guard/commit/f5160080f8c7922f0be887ca00cb3af6452034ed)), closes [#35](https://github.com/AbysmalBiscuit/agent-guard/issues/35)
+
 ## [0.1.6](https://github.com/AbysmalBiscuit/agent-guard/compare/v0.1.5...v0.1.6) (2026-10-21)
 
 
