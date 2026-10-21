@@ -4,9 +4,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-import agent_guard
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+if str(PLUGIN_ROOT) not in sys.path:
+    sys.path.insert(0, str(PLUGIN_ROOT))
 
-PLUGIN_ROOT = Path(agent_guard.__file__).resolve().parent.parent
 HOOK = [sys.executable, str(PLUGIN_ROOT / "agent_guard")]
 
 

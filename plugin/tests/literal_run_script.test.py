@@ -31,8 +31,10 @@ import sys
 import tempfile
 import types
 
-import agent_guard.process as process_module
+# isort: off
 from hook_support import PLUGIN_ROOT
+import agent_guard.process as process_module
+# isort: on
 
 SCRIPT = pathlib.Path(process_module.__file__)
 CHECKS = PLUGIN_ROOT / "tool_checks"
