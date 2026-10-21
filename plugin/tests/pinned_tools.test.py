@@ -186,6 +186,37 @@ class MissingPinTests(unittest.TestCase):
             self.assertIn(f"{name:<10} : not installed  pin {tool_version(name)}", doctor.stdout)
         self.assertIn("fallow missing", doctor.stdout)
 
+    def test_a_missing_node_pin_leaves_jscpd_silent_and_doctor_names_it(self):
+        """jscpd runs on the pinned node. Without that pin jscpd stays silent,
+        even with its own pin and a node on PATH, and doctor names node."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            project = root / "project"
+            project.mkdir()
+            init_repo(project)
+            nearer = project / ".agents" / "plugins" / "agent-guard"
+            nearer.mkdir(parents=True)
+            (nearer / "config.toml").write_text("[python]\njscpd = true\n", encoding="utf-8")
+            (project / "a.py").write_text("value = 1\n", encoding="utf-8")
+            tools = root / "tools"
+            tools.mkdir()
+            log = root / "jscpd.txt"
+            jscpd = tools / "jscpd"
+            jscpd.write_text(f'#!/bin/sh\nprintf "%s\\n" "$0" > "{log}"\n', encoding="utf-8")
+            jscpd.chmod(0o755)
+            mise = stub_mise(root / "mise", {"jscpd": str(jscpd)})
+            env = {"PATH": os.pathsep.join([mise, os.environ.get("PATH", "")])}
+
+            hook = stop_hook(project, env)
+            ran = log.exists()
+            doctor = doctor_hook(project, env)
+
+        self.assertEqual(hook.returncode, 0, hook.stderr)
+        self.assertFalse(ran)
+        self.assertEqual(doctor.returncode, 0, doctor.stderr)
+        self.assertIn(f"jscpd: node: pin {tool_version('node')} is not installed", doctor.stdout)
+
 
 class PinnedFallowTests(unittest.TestCase):
     def test_stop_audit_runs_the_mise_pinned_fallow_ahead_of_path(self):

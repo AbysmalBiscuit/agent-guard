@@ -539,12 +539,12 @@ class PythonChangesetTests(unittest.TestCase):
                     """
                 ),
             )
+            # The stand-in never starts node, so any executable fills its pin.
+            mise = stub_mise(root / "mise", {"jscpd": stall, "node": stall})
             hook = stop_hook(
                 root,
                 session="timeout",
-                extra_env={
-                    "PATH": f"{stub_mise(root / 'mise', {'jscpd': stall})}:{os.environ['PATH']}"
-                },
+                extra_env={"PATH": f"{mise}:{os.environ['PATH']}"},
                 timeout=20,
             )
             doctor = doctor_hook(root)

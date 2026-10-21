@@ -13,31 +13,43 @@ class ExternalTool:
     """One tool the audit launches, at the version `mise.toml` pins.
 
     `extensions` and `baseline` are the defaults a tree keeps until it names
-    its own. `own_venv` lets a tree's `.venv/bin/<tool>` run before the pin."""
+    its own. `own_venv` lets a tree's `.venv/bin/<tool>` run before the pin.
+    `runtime` names the pinned interpreter the tool's launcher finds on PATH."""
 
-    def __init__(self, name, extensions, baseline="", own_venv=False):
+    def __init__(self, name, extensions, baseline="", own_venv=False, runtime=None):
         self.name = name
         self.extensions = extensions
         self.baseline = baseline
         self.own_venv = own_venv
+        self.runtime = runtime
 
 
 EXTERNAL_TOOLS = (
     ExternalTool("complexipy", r"\.py$", "complexipy-snapshot.json", own_venv=True),
     ExternalTool("lizard", r"\.(py|ts|tsx)$", "whitelizard.txt", own_venv=True),
     ExternalTool("vulture", r"\.py$", "vulture-whitelist.py", own_venv=True),
-    ExternalTool("jscpd", r"\.py$"),
+    ExternalTool("jscpd", r"\.py$", runtime="node"),
     ExternalTool("pyscn", r"\.py$", own_venv=True),
 )
 
 _BY_NAME = {tool.name: tool for tool in EXTERNAL_TOOLS}
 
 
+def _missing_pin(tool):
+    """The first pin the tool needs that mise cannot name, or None."""
+    for name in (tool.name, tool.runtime):
+        if name is not None and pinned_binary(name) is None:
+            return name
+    return None
+
+
 def tool_reason(tool):
     """Why the audit cannot start one tool, without the consequence."""
     if shutil.which("mise") is None:
         return f"{tool.name}: mise is not on PATH"
-    return f"{tool.name}: pin {tool_version(tool.name) or 'unset'} is not installed"
+    pin = _missing_pin(tool) or tool.name
+    subject = tool.name if pin == tool.name else f"{tool.name}: {pin}"
+    return f"{subject}: pin {tool_version(pin) or 'unset'} is not installed"
 
 
 def tool_problem(tool):
@@ -65,11 +77,22 @@ def tool_argv(name, cwd):
     own = _own_venv(tool, cwd)
     if own is not None:
         return [str(own)]
-    binary = pinned_binary(name)
-    if binary is None:
+    if _missing_pin(tool) is not None:
         record_python_problem(tool_problem(tool), cwd)
         return None
-    return [binary]
+    return [pinned_binary(name)]
+
+
+def _runtime_env(name):
+    """The environment with the tool's pinned runtime first on PATH, or None
+    to inherit the hook's own."""
+    runtime = _BY_NAME[name].runtime
+    binary = pinned_binary(runtime) if runtime else None
+    if binary is None:
+        return None
+    env = os.environ.copy()
+    env["PATH"] = os.pathsep.join([str(Path(binary).parent), env.get("PATH", "")])
+    return env
 
 
 def run_external(name, argv, timeout, cwd):
@@ -82,6 +105,7 @@ def run_external(name, argv, timeout, cwd):
             text=True,
             timeout=timeout,
             cwd=cwd,
+            env=_runtime_env(name),
             encoding="utf-8",
             errors="replace",
             check=False,
@@ -108,7 +132,5 @@ def missing_tool_notes(enabled, cwd):
     return [
         f"{tool_reason(tool)}, so {tool.name} stays silent"
         for tool in EXTERNAL_TOOLS
-        if tool.name in enabled
-        and _own_venv(tool, cwd) is None
-        and pinned_binary(tool.name) is None
+        if tool.name in enabled and _own_venv(tool, cwd) is None and _missing_pin(tool) is not None
     ]
