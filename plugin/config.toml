@@ -136,3 +136,23 @@ extensions = '\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|pyi|rs|go|sh|bash|sql|toml|ya?
 # pyscn_extensions = '\.py$'
 
 # timeout = 20
+
+# A key above this header is ignored.
+# [file_length]
+
+# enabled = false
+
+# warn_message = "split this file by responsibility, and move tests into focused files"
+# block_message = "split this file by responsibility, and move tests into focused files"
+
+# [[file_length.limits]]
+# extensions = '\.py$'
+
+# warn = 500
+# block_lines = 1000
+
+# [[file_length.limits]]
+# pattern = "src/app.rs"
+
+# accept = true
+# lines = 4000
