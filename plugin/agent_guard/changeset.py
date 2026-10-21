@@ -801,7 +801,9 @@ def _length_covered(rel, limits):
 
 
 def _length_files(base, cwd, settings):
-    """Changed files the length check reads. The listing takes no pathspec, so an alternation regex still selects its types."""
+    """Changed files the length check reads.
+
+    The listing takes no pathspec, so an alternation regex still selects its types."""
     if not settings.file_length.enabled:
         return []
     return [
