@@ -198,13 +198,20 @@ def have(tool):
     return shutil.which(tool) is not None
 
 
-# Last Python analysis problem. Stop and doctor are different processes, so the
-# note lives in STATE_DIR and doctor reads it back.
+# Last Python analysis problem, keyed by tree so one Stop cannot clear another's.
 PYTHON_TOOL_PROBLEM = "python-tool-problem"
 
 
-def record_python_problem(text):
-    path = STATE_DIR / PYTHON_TOOL_PROBLEM
+def _problem_key(cwd):
+    return re.sub(r"[^A-Za-z0-9]", "_", str(Path(cwd).resolve()))
+
+
+def _problem_path(cwd):
+    return STATE_DIR / f"{PYTHON_TOOL_PROBLEM}-{_problem_key(cwd)}"
+
+
+def record_python_problem(text, cwd):
+    path = _problem_path(cwd)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
@@ -212,18 +219,18 @@ def record_python_problem(text):
         pass
 
 
-def python_tool_problem():
-    path = STATE_DIR / PYTHON_TOOL_PROBLEM
+def python_tool_problem(cwd):
+    path = _problem_path(cwd)
     try:
         return path.read_text(encoding="utf-8").strip()
     except OSError:
         return ""
 
 
-def clear_python_problem():
-    """Drop the last tool note. A later Stop records a new one only if it fails."""
+def clear_python_problem(cwd):
+    """Drop this tree's tool note. A later Stop records a new one only if it fails."""
     with contextlib.suppress(OSError):
-        (STATE_DIR / PYTHON_TOOL_PROBLEM).unlink(missing_ok=True)
+        _problem_path(cwd).unlink(missing_ok=True)
 
 
 def tool_command(name, cwd):
@@ -239,7 +246,7 @@ def tool_command(name, cwd):
         return [found]
     uvx = shutil.which("uvx")
     if uvx is None:
-        record_python_problem(f"{name}: uv is not on PATH, so the analysis stayed silent")
+        record_python_problem(f"{name}: uv is not on PATH, so the analysis stayed silent", cwd)
         return None
     version = PYTHON_TOOL_VERSIONS[name]
     return [uvx, "--from", f"{name}=={version}", name]
@@ -1302,14 +1309,17 @@ def _run_python_tool(cmd, timeout, cwd, name):
             check=False,
         )
     except subprocess.TimeoutExpired:
-        record_python_problem(f"{name} timed out after {timeout}s, so the analysis stayed silent")
+        record_python_problem(
+            f"{name} timed out after {timeout}s, so the analysis stayed silent", cwd
+        )
         return ""
     except Exception:
-        record_python_problem(f"{name} failed to start, so the analysis stayed silent")
+        record_python_problem(f"{name} failed to start, so the analysis stayed silent", cwd)
         return ""
     if p.returncode != 0 and not (p.stdout or "").strip():
         record_python_problem(
-            f"{name} exited {p.returncode} with no output, so the analysis stayed silent"
+            f"{name} exited {p.returncode} with no output, so the analysis stayed silent",
+            cwd,
         )
         return ""
     return p.stdout or ""
@@ -1352,8 +1362,8 @@ def find_complexipy(changed, analysis, settings, cwd, base, timeout):
         report = Path(out_dir.name) / "complexipy-results.json"
         # complexipy writes the report to a file and may print nothing, so an
         # empty stdout is not the failure. A missing report is.
-        if not report.is_file() and not python_tool_problem():
-            record_python_problem("complexipy wrote no report, so the analysis stayed silent")
+        if not report.is_file() and not python_tool_problem(cwd):
+            record_python_problem("complexipy wrote no report, so the analysis stayed silent", cwd)
         try:
             rows = json.loads(report.read_text(encoding="utf-8")) if report.is_file() else []
         except (OSError, ValueError):
@@ -1485,7 +1495,7 @@ def find_python(changed, settings, cwd, base, budget):
 
     `budget` is seconds left under the Stop hook's own deadline. Each tool gets
     only what remains, and a tool with none left is skipped and recorded."""
-    clear_python_problem()
+    clear_python_problem(cwd)
     sections = []
     runners = {
         "complexipy": find_complexipy,
@@ -1500,7 +1510,8 @@ def find_python(changed, settings, cwd, base, budget):
         left = budget - (time.monotonic() - started)
         if left <= 0:
             record_python_problem(
-                f"{name}: no time left under the hook deadline, so the analysis stayed silent"
+                f"{name}: no time left under the hook deadline, so the analysis stayed silent",
+                cwd,
             )
             continue
         text = runner(changed, analysis, settings, cwd, base, min(analysis.timeout, left))
@@ -1570,7 +1581,7 @@ def check_changeset(event, session, agent_type, roots, settings, cwd):
     violations = run_changeset_checks(base, roots, cwd)
     if not changed and not violations:
         # Nothing for the tools to read. Drop a note from an earlier Stop.
-        clear_python_problem()
+        clear_python_problem(cwd)
         emit_silent()
 
     sdir = STATE_DIR / session
@@ -1720,7 +1731,7 @@ def doctor(cwd):
                 f"{analysis.min_confidence}  from "
                 f"{settings.origins.get('python_vulture_min_confidence', 'default')}"
             )
-    problem = python_tool_problem()
+    problem = python_tool_problem(cwd)
     if problem:
         print(f"  python tools : {problem}")
     elif any(analysis.enabled for analysis in settings.python.values()):

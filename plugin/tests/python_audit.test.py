@@ -165,7 +165,7 @@ def doctor_without_uv(_project, checkout):
         return doctor(fresh, checkout, env_extra={"PATH": "/usr/bin:/bin"})
 
 
-def hook_env(project, checkout=None, env_extra=None, config_dir=None):
+def hook_env(project, checkout=None, env_extra=None, config_dir=None, state_home=None):
     """Environment one hook call runs in. `checkout` is the tree's config.toml."""
     if checkout is not None:
         nearer = project / ".agents" / "plugins" / "agent-guard"
@@ -180,16 +180,16 @@ def hook_env(project, checkout=None, env_extra=None, config_dir=None):
     env.update(
         HOME=str(home),
         AGENT_GUARD_CONFIG_DIR=str(config_dir or PLUGIN),
-        XDG_STATE_HOME=str(project.parent / "state"),
+        XDG_STATE_HOME=str(state_home or (project.parent / "state")),
         AGENT_GUARD_LOG="0",
     )
     env.update(env_extra or {})
     return env
 
 
-def doctor(project, checkout, env_extra=None):
+def doctor(project, checkout, env_extra=None, state_home=None):
     """Stdout of `agent_guard.py doctor` inside a tree that opted in."""
-    env = hook_env(project, checkout, env_extra)
+    env = hook_env(project, checkout, env_extra, state_home=state_home)
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "doctor"],
         capture_output=True,
@@ -203,10 +203,10 @@ def doctor(project, checkout, env_extra=None):
     return result.stdout
 
 
-def stop(project, checkout=None, env_extra=None, config_dir=None):
+def stop(project, checkout=None, env_extra=None, config_dir=None, state_home=None):
     """Stdout of one Stop call against `project`. `checkout` is the tree's
     config.toml. None leaves only the global layer."""
-    env = hook_env(project, checkout, env_extra, config_dir)
+    env = hook_env(project, checkout, env_extra, config_dir, state_home)
     payload = {
         "session_id": "python-audit",
         "cwd": str(project),
@@ -239,6 +239,31 @@ def tree_config(analysis):
 
 
 class PythonAuditTests(unittest.TestCase):
+    def test_one_tree_keeps_its_tool_note_when_another_clears(self):
+        """The tool note is keyed by the tree. A clean Stop in a second tree
+        leaves the first tree's doctor line in place."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            first = root / "first"
+            second = root / "second"
+            first.mkdir()
+            second.mkdir()
+            commit(first, "seed.py", CALM)
+            commit(second, "seed.py", CALM)
+            (first / "work.py").write_text(NOISY, encoding="utf-8")
+            (second / "again.py").write_text(CALM, encoding="utf-8")
+            checkout = tree_config("lizard")
+            state = root / "state"
+            stop(
+                first,
+                checkout,
+                env_extra={"PATH": "/usr/bin:/bin"},
+                state_home=state,
+            )
+            stop(second, checkout, state_home=state)
+            reported = doctor(first, checkout, state_home=state)
+        self.assertIn("uv is not on PATH", reported)
+
     def test_a_new_file_committed_on_the_branch_still_reports(self):
         """A file the merge-base never had, committed on the branch, is still
         the changeset. Stop names the offender it added."""
