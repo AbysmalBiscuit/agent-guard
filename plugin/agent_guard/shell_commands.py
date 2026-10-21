@@ -82,15 +82,14 @@ MAX_DEPTH = 3
 class Command:
     """One command the line runs.
 
-    `name` is `word` without its directory and `.exe`, in lower case. `op` is
-    the operator that introduced the command, empty for the first command and
-    for a command that `bash -c` or `xargs` runs.
+    `name` is the command word without its directory and `.exe`, in lower
+    case. `op` is the operator that introduced the command, empty for the
+    first command and for a command that another command runs.
     """
 
     name: str
     args: tuple[str, ...]
     op: str = ""
-    word: str = ""
 
 
 def command_name(word):
@@ -207,7 +206,7 @@ def _expand(words, op, stdin, keep_backslashes, depth):
 
     A shell runs its `-c` script, or else the here-string it reads.
     """
-    command = Command(command_name(words[0]), tuple(words[1:]), op, words[0])
+    command = Command(command_name(words[0]), tuple(words[1:]), op)
     found = [command]
     if command.name in SHELLS:
         script = _shell_script(command.args)
