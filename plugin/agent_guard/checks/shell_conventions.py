@@ -38,24 +38,12 @@ GREP_RECURSIVE = {"-r", "-R", "--recursive", "--dereference-recursive"}
 LS_RECURSIVE = {"-R", "--recursive"}
 
 
-class Segment:
-    """One command position: the command word, its arguments, and the operator
-    that introduced it. `op` is "|" only for a genuine pipe, so the pipeline
-    rules cannot fire across a `;` or a `&&`."""
-
-    def __init__(self, op, name, args):
-        self.op = op
-        self.name = name
-        self.args = args
-
-
 def segments(command):
-    """Every command position in the line, in order. An unparseable line yields
-    nothing, so the guard falls silent rather than guessing."""
-    return [
-        Segment(item.op, item.name, list(item.args))
-        for item in read_commands(command, partial=False)
-    ]
+    """Every command position in the line, in order. `op` is "|" only for a
+    genuine pipe, so the pipeline rules cannot fire across a `;` or a `&&`.
+    An unparseable line yields nothing, so the guard falls silent rather than
+    guessing."""
+    return read_commands(command, partial=False)
 
 
 def operands(args, opts_with_value):
