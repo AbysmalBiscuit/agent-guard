@@ -100,7 +100,7 @@ class AuditCommandTests(unittest.TestCase):
             first = audit(root, (str(root),))
             second = audit(root, (str(root),))
 
-        self.assertNotEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(first.returncode, 1, first.stderr)
         self.assertIn("This branch introduced", first.stdout)
         self.assertNotIn("This agent", first.stdout)
         self.assertIn("duplicated lines across 2 sites", first.stdout)
