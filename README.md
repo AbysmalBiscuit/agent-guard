@@ -243,7 +243,6 @@ plugin/
   agent_guard/                    hook package
   scripts/                        helpers
   agent_guard/checks/             built-in checks
-  tool_checks/ checks/            project check scripts
   rules/ queries/ sgconfig.yml    ast-grep rules
   tests/                          test suite
 ```
