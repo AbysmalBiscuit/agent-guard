@@ -49,6 +49,22 @@ def clear_python_problem(cwd):
         _problem_path(cwd).unlink(missing_ok=True)
 
 
+def run_bytes(cmd, timeout=20, cwd=None):
+    """Stdout bytes, or empty for any failure. NUL-separated git output stays
+    bytes so a path is not split on a decoded replacement character."""
+    try:
+        done = subprocess.run(
+            cmd,
+            capture_output=True,
+            timeout=timeout,
+            cwd=cwd,
+            check=False,
+        )
+    except Exception:
+        return b""
+    return done.stdout or b""
+
+
 def run(cmd, timeout=20, cwd=None, stdin=None, env=None):
     """Stdout, or an empty string for any failure. Every external call is bounded
     so a wedged tool cannot outlive the hook."""

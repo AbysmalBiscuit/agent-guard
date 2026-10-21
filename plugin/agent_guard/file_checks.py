@@ -107,8 +107,11 @@ def run_checks(path, roots, cwd):
 
 def run_changeset_checks(base, roots, cwd, base_copy=""):
     """Conventions only a diff can show. A root's changeset_checks/ holds Python
-    scripts, each given the base revision as its argument and printing a finished
-    section on stdout when it has something to say; silence means nothing found.
+    scripts. Each script gets the base revision as argv[1]. argv[2] is the
+    shared base copy, or empty when there is no base. A script treats that
+    copy as read-only. A script that reads only argv[1] works unchanged.
+    Stdout is a finished section when the script has something to say;
+    silence means nothing found.
 
     The per-call layers cannot stand in for this. A PreToolUse check sees one
     call and a PostToolUse check sees one file, so whatever reaches the branch by

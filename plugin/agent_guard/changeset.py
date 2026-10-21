@@ -10,6 +10,8 @@ import shutil
 import subprocess
 import tempfile
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from .config import JSCPD_MAX_SIZE, JSCPD_MIN_LINES, JSCPD_MIN_TOKENS, _int
@@ -23,17 +25,19 @@ from .process import (
     python_tool_problem,
     record_python_problem,
     run,
+    run_bytes,
     succeeds,
 )
 
 
-def find_duplication(changeset):
+def find_duplication(changeset, slot):
     """Duplication introduced by the changeset. Generated code is excluded: it is
     duplicated by design, and flagging it teaches agents to ignore the hook."""
+    del slot
     settings = changeset.settings
     cwd = changeset.cwd
     if not settings.use_fallow or not have("fallow"):
-        return ""
+        return AnalysisResult()
     raw = run(
         ["fallow", "audit", "--base", changeset.base, "--format", "json"],
         timeout=settings.fallow_timeout,
@@ -54,7 +58,7 @@ def find_duplication(changeset):
         if any(settings.ignore_re.search(i.get("file", "")) for i in instances):
             continue
         groups.append(group)
-    return format_fresh_groups(groups, changeset.seen_file, settings)
+    return AnalysisResult(format_fresh_groups(groups, changeset.seen_file, settings))
 
 
 def format_fresh_groups(groups, seen_file, settings):
@@ -91,12 +95,13 @@ def format_fresh_groups(groups, seen_file, settings):
     return "\n".join(lines)
 
 
-def find_over_extraction(changeset):
+def find_over_extraction(changeset, slot):
     """Helpers extracted past the point of usefulness. Two shapes are reported,
     each behind its own switch: an export whose only consumer is its own test,
     and an export with exactly one real caller. Barrel re-exports do not count as
     consumers. Reference counting is name-based, so it is a heuristic, which is
     why this stays advisory: a same-named symbol elsewhere reads as a consumer."""
+    del slot
     settings = changeset.settings
     cwd = changeset.cwd
     seen_file = changeset.seen_file
@@ -187,7 +192,7 @@ def find_over_extraction(changeset):
             except OSError:
                 pass
             out.append(mark)
-    return "\n".join(out)
+    return AnalysisResult("\n".join(out))
 
 
 _SOURCE_RE = re.compile(r"\.(ts|tsx|js|jsx)$")
@@ -297,18 +302,18 @@ def _selected(changed, analysis, settings, cwd):
     return selected
 
 
-def find_complexipy(changeset):
+def find_complexipy(changeset, slot):
     """Cognitive complexity the changeset introduced, above the tree's threshold."""
-    analysis = changeset.analysis
+    analysis = changeset.settings.python["complexipy"]
     settings = changeset.settings
     cwd = changeset.cwd
-    timeout = changeset.slot
+    timeout = slot
     files = _selected(changeset.changed, analysis, settings, cwd)
     if not files:
-        return ""
+        return AnalysisResult()
     cmd = tool_argv("complexipy", cwd)
     if cmd is None:
-        return ""
+        return AnalysisResult()
     try:
         out_dir = tempfile.TemporaryDirectory(prefix="complexipy-")
     except OSError:
@@ -339,7 +344,9 @@ def find_complexipy(changeset):
         # complexipy writes the report to a file and may print nothing, so an
         # empty stdout is not the failure. A missing report is.
         if not report.is_file() and not python_tool_problem(cwd):
-            record_python_problem("complexipy wrote no report, so the analysis stayed silent", cwd)
+            return AnalysisResult(
+                problems=("complexipy wrote no report, so the analysis stayed silent",)
+            )
         try:
             rows = json.loads(report.read_text(encoding="utf-8")) if report.is_file() else []
         except (OSError, ValueError):
@@ -363,18 +370,18 @@ def find_complexipy(changeset):
             f"  {rel}:{span[0]}  {name} has cognitive complexity {score}, "
             f"above {analysis.max_complexity}. Split it."
         )
-    return "\n".join(lines[: settings.max_findings])
+    return AnalysisResult("\n".join(lines[: settings.max_findings]))
 
 
-def find_lizard(changeset):
+def find_lizard(changeset, slot):
     """Cyclomatic complexity, length, or parameter count the changeset introduced."""
-    analysis = changeset.analysis
+    analysis = changeset.settings.python["lizard"]
     settings = changeset.settings
     cwd = changeset.cwd
-    timeout = changeset.slot
+    timeout = slot
     files = _selected(changeset.changed, analysis, settings, cwd)
     if not files:
-        return ""
+        return AnalysisResult()
     cmd = tool_argv("lizard", cwd)
     if cmd is None:
         return ""
@@ -428,18 +435,18 @@ def find_lizard(changeset):
         if not reasons:
             continue
         lines.append(f"  {rel}:{start}  {qualified} has {', '.join(reasons)}. Split it.")
-    return "\n".join(lines[: settings.max_findings])
+    return AnalysisResult("\n".join(lines[: settings.max_findings]))
 
 
-def find_vulture(changeset):
+def find_vulture(changeset, slot):
     """Dead code on a line the branch added."""
-    analysis = changeset.analysis
+    analysis = changeset.settings.python["vulture"]
     settings = changeset.settings
     cwd = changeset.cwd
-    timeout = changeset.slot
+    timeout = slot
     files = _selected(changeset.changed, analysis, settings, cwd)
     if not files:
-        return ""
+        return AnalysisResult()
     cmd = tool_argv("vulture", cwd)
     if cmd is None:
         return ""
@@ -471,7 +478,7 @@ def find_vulture(changeset):
         f"  {rel}:{number}  dead code: {name} is unused. Delete it or use it."
         for _kind, _confidence, number, rel, name in hits
     ]
-    return "\n".join(lines[: settings.max_findings])
+    return AnalysisResult("\n".join(lines[: settings.max_findings]))
 
 
 def _rel_of(name, cwd):
@@ -576,18 +583,18 @@ def jscpd_scan_suffixes(paths):
     return [suffix for suffix in suffixes if suffix.isascii() and suffix.isalnum()]
 
 
-def find_jscpd(changeset):
+def find_jscpd(changeset, slot):
     """Clone groups among the file types this analysis reads, when one
     instance sits on an added line."""
-    analysis = changeset.analysis
+    analysis = changeset.settings.python["jscpd"]
     settings = changeset.settings
     cwd = changeset.cwd
-    timeout = changeset.slot
+    timeout = slot
     seen_file = changeset.seen_file
     changed = changeset.changed
     selected = [rel for rel in changed if analysis.ext_re.search(rel)]
     if not selected:
-        return ""
+        return AnalysisResult()
     cmd = tool_argv("jscpd", cwd)
     if cmd is None:
         return ""
@@ -601,7 +608,7 @@ def find_jscpd(changeset):
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         out_dir = Path(tempfile.mkdtemp(prefix="jscpd-", dir=STATE_DIR))
     except OSError:
-        return ""
+        return AnalysisResult()
     report = out_dir / "jscpd-report.json"
     argv = [
         *cmd,
@@ -632,8 +639,10 @@ def find_jscpd(changeset):
         data = None
     shutil.rmtree(out_dir, ignore_errors=True)
     if not data:
-        return ""
-    return render_clone_groups(python_clone_groups(data, cwd, added), seen_file, settings)
+        return AnalysisResult()
+    return AnalysisResult(
+        render_clone_groups(python_clone_groups(data, cwd, added), seen_file, settings)
+    )
 
 
 def _module_in_root(module, root):
@@ -676,10 +685,10 @@ def cycle_keys(raw, root):
 
 
 def _extract_base(base, cwd, dest, deadline):
-    """Python files at the base revision, under dest, inside the shared deadline.
+    """The base revision under dest, inside the shared deadline.
 
-    One git archive feeds tar, so the copy is one subprocess, bounded by the
-    time still left."""
+    One git archive feeds tar. pyscn scans dest directly, so the copy keeps
+    the tree's own directory name and drops files pyscn does not read."""
     left = deadline - time.monotonic()
     if left <= 0:
         return False
@@ -707,24 +716,23 @@ def _extract_base(base, cwd, dest, deadline):
         return False
     if tar.returncode != 0 or archive.returncode != 0:
         return False
-    # pyscn reads Python. Other files from the archive are not modules.
     for path in Path(dest).rglob("*"):
         if path.is_file() and path.suffix not in (".py", ".pyi"):
             path.unlink(missing_ok=True)
     return True
 
 
-def find_pyscn(changeset):
+def find_pyscn(changeset, slot):
     """Import cycles the working tree has and the base revision did not."""
-    analysis = changeset.analysis
+    analysis = changeset.settings.python["pyscn"]
     cwd = changeset.cwd
-    timeout = changeset.slot
+    timeout = slot
     changed = changeset.changed
     if not any(analysis.ext_re.search(rel) for rel in changed):
-        return ""
+        return AnalysisResult()
     cmd = tool_argv("pyscn", cwd)
     if cmd is None:
-        return ""
+        return AnalysisResult()
     started = time.monotonic()
     current_raw = run_external(
         "pyscn",
@@ -734,131 +742,180 @@ def find_pyscn(changeset):
     )
     current = cycle_keys(current_raw, cwd)
     if not current:
-        return ""
+        return AnalysisResult()
     left = timeout - (time.monotonic() - started)
     if left <= 0:
-        record_python_problem(
-            "pyscn: no time left under the hook deadline, so the analysis stayed silent", cwd
+        return AnalysisResult(
+            problems=("pyscn: no time left under the hook deadline, so the analysis stayed silent",)
         )
-        return ""
-    try:
-        parent = Path(tempfile.mkdtemp(prefix="pyscn-base-", dir=STATE_DIR))
-    except OSError:
-        return ""
-    # pyscn names a module from the directory it scans, so the copy sits in a
-    # directory with the tree's own name. The same cycle then has the same key.
-    dest = parent / cwd.name
+    # The shared copy already sits in a directory with the tree's own name, so
+    # pyscn names a module the same way in both scans.
     deadline = time.monotonic() + left
-    try:
-        dest.mkdir()
-        source = changeset.shared_base(deadline)
-        if not source or not _extract_base_from(source, dest):
-            record_python_problem(
+    source = changeset.shared_base(deadline)
+    if not source:
+        return AnalysisResult(
+            problems=(
                 "pyscn: the base revision copy did not finish, so the analysis stayed silent",
-                cwd,
             )
-            return ""
-        base_raw = run_external(
-            "pyscn",
-            [*cmd, "analyze", "--select", "deps", "--json", "--output", "-", "."],
-            max(deadline - time.monotonic(), 1),
-            dest,
         )
-    finally:
-        shutil.rmtree(parent, ignore_errors=True)
-    base_keys = cycle_keys(base_raw, dest)
+    base_raw = run_external(
+        "pyscn",
+        [*cmd, "analyze", "--select", "deps", "--json", "--output", "-", "."],
+        max(deadline - time.monotonic(), 1),
+        Path(source),
+    )
+    base_keys = cycle_keys(base_raw, Path(source))
     if base_keys is None:
-        return ""
+        return AnalysisResult()
     fresh = sorted(current - base_keys)
     if not fresh:
-        return ""
+        return AnalysisResult()
     lines = ["  import cycles the base revision did not have:"]
     lines.extend(f"    {key}" for key in fresh[: changeset.settings.max_findings])
-    return "\n".join(lines)
+    return AnalysisResult("\n".join(lines))
 
 
-def find_file_length_analysis(changeset):
+def find_file_length_analysis(changeset, slot):
     """Changed files past a warn or block limit, from the shared file list."""
+    del slot
     text, blocks = find_file_length(changeset.length_changed, changeset.settings, changeset.cwd)
-    changeset.length_blocks = blocks
-    return text
+    return AnalysisResult(text, blocks=blocks)
+
+
+@dataclass(frozen=True)
+class AnalysisResult:
+    """What one analysis found. `text` is its finding block. `problems` are
+    notes the changeset records once. `blocks` is a length finding that denies."""
+
+    text: str = ""
+    problems: tuple[str, ...] = ()
+    blocks: bool = False
+
+
+@dataclass(frozen=True)
+class Analysis:
+    """One Stop analysis. `gate` decides whether it runs. `section` wraps its
+    finding text. Both are empty when the row has nothing to add."""
+
+    name: str
+    analyze: Callable
+    gate: Callable
+    section: Callable
+
+
+def _python_gate(name):
+    def gate(changeset):
+        return changeset.settings.python[name].enabled
+
+    return gate
+
+
+def _length_gate(changeset):
+    return bool(changeset.length_changed)
+
+
+def _python_slot(name, changeset, left):
+    return min(changeset.settings.python[name].timeout, left)
+
+
+def _fallow_slot(changeset, left):
+    del changeset
+    return left
+
+
+def _no_slot(changeset, left):
+    del changeset, left
+    return None
+
+
+def _duplication_section(who, text):
+    return (
+        f"{who} introduced duplicated code rather than reusing what already "
+        f"exists:\n\n{text}\n\nConsolidate against the existing "
+        "implementation, or explain why a separate one is warranted. Run "
+        "'fallow dupes --trace <fingerprint>' for the full clone group.\n"
+    )
+
+
+def _extraction_section(who, text):
+    return (
+        f"{who} added helpers that carry their own abstraction cost without "
+        f"earning it:\n\n{text}\nAn indirection worth keeping has more "
+        "than one caller, or a name that explains something the inlined code "
+        "would not."
+    )
+
+
+def _length_section(who, text):
+    return f"{who} changed files past a length limit this tree set:\n\n{text}\n"
+
+
+def _python_section(who, text):
+    return f"{who} introduced findings the tree asked this audit to report:\n\n{text}\n"
 
 
 # One signature. A new analysis is another row, not another call shape.
 ANALYSES = (
-    ("duplication", find_duplication),
-    ("over-extraction", find_over_extraction),
-    ("complexipy", find_complexipy),
-    ("lizard", find_lizard),
-    ("vulture", find_vulture),
-    ("jscpd", find_jscpd),
-    ("pyscn", find_pyscn),
-    ("file-length", find_file_length_analysis),
+    Analysis("duplication", find_duplication, lambda changeset: True, _duplication_section),
+    Analysis("over-extraction", find_over_extraction, lambda changeset: True, _extraction_section),
+    Analysis("complexipy", find_complexipy, _python_gate("complexipy"), _python_section),
+    Analysis("lizard", find_lizard, _python_gate("lizard"), _python_section),
+    Analysis("vulture", find_vulture, _python_gate("vulture"), _python_section),
+    Analysis("jscpd", find_jscpd, _python_gate("jscpd"), _python_section),
+    Analysis("pyscn", find_pyscn, _python_gate("pyscn"), _python_section),
+    Analysis("file-length", find_file_length_analysis, _length_gate, _length_section),
 )
 
-_PYTHON = frozenset(tool.name for tool in EXTERNAL_TOOLS)
+_SLOT = {
+    "duplication": _fallow_slot,
+    "complexipy": lambda changeset, left: _python_slot("complexipy", changeset, left),
+    "lizard": lambda changeset, left: _python_slot("lizard", changeset, left),
+    "vulture": lambda changeset, left: _python_slot("vulture", changeset, left),
+    "jscpd": lambda changeset, left: _python_slot("jscpd", changeset, left),
+    "pyscn": lambda changeset, left: _python_slot("pyscn", changeset, left),
+}
 
 
 def run_analyses(changeset):
-    """Every analysis, each given the same changeset. A tool with no time left
-    is recorded and skipped. The changeset owns that record."""
-    findings = {}
-    for name, analyze in ANALYSES:
-        if name in _PYTHON:
-            analysis = changeset.settings.python[name]
-            if not analysis.enabled:
-                continue
-            left = changeset.budget - (time.monotonic() - changeset.budget_started)
-            if left <= 0:
-                record_python_problem(
-                    f"{name}: no time left under the hook deadline, so the analysis stayed silent",
-                    changeset.cwd,
-                )
-                continue
-            changeset.analysis = analysis
-            changeset.slot = min(analysis.timeout, left)
-        elif name == "file-length" and not changeset.length_changed:
+    """Every analysis, each given the changeset and its time slot. A tool with
+    no time left is a problem on the result, recorded once after the loop."""
+    results = {}
+    for row in ANALYSES:
+        if not row.gate(changeset):
             continue
-        text = analyze(changeset)
-        if text:
-            findings[name] = text
-    return findings
+        left = changeset.budget - (time.monotonic() - changeset.budget_started)
+        slot_for = _SLOT.get(row.name, _no_slot)
+        if row.name in _SLOT and left <= 0:
+            results[row.name] = AnalysisResult(
+                problems=(
+                    f"{row.name}: no time left under the hook deadline, so the analysis stayed silent",
+                )
+            )
+            continue
+        results[row.name] = row.analyze(changeset, slot_for(changeset, left))
+    for result in results.values():
+        for problem in result.problems:
+            record_python_problem(problem, changeset.cwd)
+    return results
 
 
-def render_findings(who, findings, violations):
-    """One report from every analysis's text. The wording is the contract the
-    existing Stop tests read."""
+def render_findings(who, results, violations):
+    """One report. Each row wraps its own finding text. Python findings share
+    one section, in row order."""
     sections = []
     if violations:
         sections.append(violations)
-    dupes = findings.get("duplication")
-    if dupes:
-        sections.append(
-            f"{who} introduced duplicated code rather than reusing what already "
-            f"exists:\n\n{dupes}\n\nConsolidate against the existing "
-            "implementation, or explain why a separate one is warranted. Run "
-            "'fallow dupes --trace <fingerprint>' for the full clone group.\n"
-        )
-    extraction = findings.get("over-extraction")
-    if extraction:
-        sections.append(
-            f"{who} added helpers that carry their own abstraction cost without "
-            f"earning it:\n\n{extraction}\nAn indirection worth keeping has more "
-            "than one caller, or a name that explains something the inlined code "
-            "would not."
-        )
-    python = "\n".join(
-        findings[name] for name, _analyze in ANALYSES if name in _PYTHON and findings.get(name)
-    )
+    python = []
+    for row in ANALYSES:
+        result = results.get(row.name)
+        if result is None or not result.text:
+            continue
+        if row.section is _python_section:
+            python.append(result.text)
+            continue
+        sections.append(row.section(who, result.text))
     if python:
-        sections.append(
-            f"{who} introduced findings the tree asked this audit to report:\n\n{python}\n"
-        )
-    length_text = findings.get("file-length")
-    if length_text:
-        sections.append(
-            f"{who} changed files past a length limit this tree set:\n\n{length_text}\n"
-        )
+        sections.append(_python_section(who, "\n".join(python)))
     return sections
 
 
@@ -866,11 +923,7 @@ def _watched_diff(diff_text, watched):
     """The one patch, reduced to the files the skip watches."""
     if not watched:
         return ""
-    keep = set(watched)
-    parts = []
-    for rel, text in _split_diff(diff_text).items():
-        if rel in keep:
-            parts.append(text)
+    parts = [text for _rel, text in _split_diff(diff_text, watched).items()]
     return "".join(parts)
 
 
@@ -998,65 +1051,86 @@ def _length_limit(rel, limits):
     return None
 
 
+_DIFF_CONFIG = (
+    "-c",
+    "core.quotePath=false",
+    "-c",
+    "diff.mnemonicPrefix=false",
+    "-c",
+    "diff.noprefix=false",
+)
+_DIFF_PREFIX = ("--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/")
+
+# A repeat Stop hashes at most this many watched files, matching the old listing cap.
+_FINGERPRINT_CAP = 200
+
+
 class Changeset:
     """One Stop's diff, file list, and base copy, shared by every analysis.
 
     `diff_text` is the one `git diff` against the base. `base_copy` is filled
     the first time an analysis asks for the base revision."""
 
-    def __init__(self, base, diff_text, changed, cwd, settings, roots, seen_file):
+    def __init__(self, base, diff_text, changed, untracked, cwd, settings, roots, seen_file):
         self.base = base
         self.diff_text = diff_text
         self.changed = changed
+        self.untracked = untracked
         self.cwd = cwd
         self.settings = settings
         self.roots = roots
         self.seen_file = seen_file
         self.length_changed = []
-        self.length_blocks = False
-        self.analysis = None
-        self.slot = None
         self.budget_started = None
         self.budget = None
-        self._files = {}
-        self._base_copy = None
+        self._files = _split_diff(diff_text, changed)
+        self._base_parent = None
         self._base_miss = False
-        for rel, text in _split_diff(diff_text).items():
-            self._files[rel] = text
 
     def diff_for(self, rel):
         """This file's patch. None means the file is untracked."""
         if rel in self._files:
             return self._files[rel]
-        if rel in self.changed and not succeeds(
-            ["git", "ls-files", "--error-unmatch", "--", rel], cwd=self.cwd
-        ):
+        if rel in self.untracked:
             return None
         return ""
 
     def shared_base(self, deadline):
-        """Directory of the one base extraction, or "" when it did not finish."""
+        """The one base copy, named like the tree, or "" when it did not finish."""
         if self._base_miss:
             return ""
-        if self._base_copy is None:
-            STATE_DIR.mkdir(parents=True, exist_ok=True)
-            self._base_copy = Path(tempfile.mkdtemp(prefix="changeset-base-", dir=STATE_DIR))
-            if not _extract_base(self.base, self.cwd, self._base_copy, deadline):
+        if self._base_parent is None:
+            try:
+                STATE_DIR.mkdir(parents=True, exist_ok=True)
+                parent = Path(tempfile.mkdtemp(prefix="changeset-base-", dir=STATE_DIR))
+                dest = parent / self.cwd.name
+                dest.mkdir()
+            except OSError:
                 self._base_miss = True
-                shutil.rmtree(self._base_copy, ignore_errors=True)
-                self._base_copy = None
                 return ""
-        return str(self._base_copy)
+            self._base_parent = parent
+            if not _extract_base(self.base, self.cwd, dest, deadline):
+                self._base_miss = True
+                self.close()
+                return ""
+        return str(self._base_parent / self.cwd.name)
 
     def close(self):
-        if self._base_copy is not None:
-            shutil.rmtree(self._base_copy, ignore_errors=True)
-            self._base_copy = None
+        if self._base_parent is not None:
+            shutil.rmtree(self._base_parent, ignore_errors=True)
+            self._base_parent = None
 
 
-def _split_diff(diff_text):
-    """One patch body per path in a combined `git diff`."""
+def _header_for(rel):
+    """The `diff --git` header this read forces, for one changed path."""
+    return f"diff --git a/{rel} b/{rel}"
+
+
+def _split_diff(diff_text, changed):
+    """One patch body per changed path. The header is matched whole, so a
+    space in the path does not split it."""
     files = {}
+    headers = {rel: _header_for(rel) for rel in changed}
     current = None
     body = []
 
@@ -1068,10 +1142,7 @@ def _split_diff(diff_text):
         if line.startswith("diff --git "):
             finish()
             body = [line]
-            current = None
-            parts = line.split(" ")
-            if len(parts) >= 4 and parts[-1].startswith("b/"):
-                current = parts[-1][2:]
+            current = next((rel for rel, header in headers.items() if line == header), None)
             continue
         if current is None:
             continue
@@ -1080,51 +1151,39 @@ def _split_diff(diff_text):
     return files
 
 
-def _extract_base_from(source, dest):
-    """Copy the shared base extraction into the directory an analysis scans."""
-    try:
-        for path in Path(source).rglob("*"):
-            rel = path.relative_to(source)
-            target = Path(dest) / rel
-            if path.is_dir():
-                target.mkdir(parents=True, exist_ok=True)
-            elif path.is_file():
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(path, target)
-    except OSError:
-        return False
-    return True
+def _nul_paths(raw):
+    """Paths from `git -z` output. A trailing NUL is not a path."""
+    if not raw:
+        return []
+    parts = raw.split(b"\0")
+    if parts and parts[-1] == b"":
+        parts.pop()
+    names = []
+    for part in parts:
+        rel = part.decode("utf-8", "surrogateescape")
+        if rel:
+            names.append(rel)
+    return names
 
 
 def read_changeset(base, cwd):
-    """The diff once, plus untracked names. A new file is absent from the diff."""
-    diff_text = run(["git", "diff", base], cwd=cwd)
-    changed = _names_from_diff(diff_text)
+    """The diff once, plus untracked names. A new file is absent from the diff.
+
+    Names come from `--name-only -z`. Prefix and quote config cannot rename a
+    path in that listing, and a space stays inside its NUL-delimited field."""
+    diff_argv = ["git", *_DIFF_CONFIG, "diff", *_DIFF_PREFIX, base]
+    names_argv = ["git", *_DIFF_CONFIG, "diff", "--name-only", "-z", *_DIFF_PREFIX, base]
+    diff_text = run(diff_argv, cwd=cwd)
+    changed = _nul_paths(run_bytes(names_argv, cwd=cwd))
     seen = set(changed)
-    for line in run(["git", "ls-files", "--others", "--exclude-standard"], cwd=cwd).splitlines():
-        rel = line.strip()
-        if rel and rel not in seen:
+    untracked = []
+    others = run_bytes(["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd=cwd)
+    for rel in _nul_paths(others):
+        untracked.append(rel)
+        if rel not in seen:
             seen.add(rel)
             changed.append(rel)
-    return diff_text, changed
-
-
-def _names_from_diff(diff_text):
-    """Paths the one patch touches, including deletions."""
-    names = []
-    seen = set()
-    for line in diff_text.splitlines():
-        if not line.startswith("diff --git "):
-            continue
-        parts = line.split(" ")
-        if len(parts) < 4 or not parts[-1].startswith("b/"):
-            continue
-        rel = parts[-1][2:]
-        if not rel or rel in seen:
-            continue
-        seen.add(rel)
-        names.append(rel)
-    return names
+    return diff_text, changed, frozenset(untracked)
 
 
 def changeset_fingerprint(diff_text, changed, cwd):
@@ -1137,7 +1196,6 @@ def changeset_fingerprint(diff_text, changed, cwd):
     digest.update(diff_text.encode("utf-8", "replace"))
     digest.update("\0".join(changed).encode("utf-8", "replace"))
     for rel in changed:
-        digest.update(rel.encode("utf-8", "replace"))
         path = cwd / rel
         try:
             digest.update(path.read_bytes())
@@ -1153,18 +1211,25 @@ def check_changeset(session, agent_type, roots, settings, cwd):
         return SILENT
 
     base = git_base(settings, cwd)
-    diff_text, changed = read_changeset(base, cwd)
-    # Before the source-glob gate: the duplication audit reads TS and JS, but a
-    # changeset-check speaks for whatever files its own rule covers, and a
-    # branch that touched only markdown or shell still has to answer for them.
-    wants_base = settings.python["pyscn"].enabled or any(
-        (root / "changeset_checks").is_dir() for root in roots
-    )
-    held = Changeset(base, diff_text, changed, cwd, settings, roots, None)
-    base_copy = held.shared_base(time.monotonic() + 20) if wants_base else ""
-    violations = run_changeset_checks(base, roots, cwd, base_copy)
+    diff_text, changed, untracked = read_changeset(base, cwd)
+    # Changeset checks run before the empty-changeset return because they
+    # speak for any file type.
+    held = Changeset(base, diff_text, changed, untracked, cwd, settings, roots, None)
+    # The 55s budget starts before the extraction a changeset check may need.
+    held.budget = 55
+    held.budget_started = time.monotonic()
+    try:
+        return _audit(session, agent_type, roots, settings, cwd, held, diff_text, changed)
+    finally:
+        held.close()
+
+
+def _audit(session, agent_type, roots, settings, cwd, held, diff_text, changed):
+    wants_base = any((root / "changeset_checks").is_dir() for root in roots)
+    deadline = held.budget_started + held.budget
+    base_copy = held.shared_base(deadline) if wants_base else ""
+    violations = run_changeset_checks(held.base, roots, cwd, base_copy)
     if not changed and not violations:
-        # Nothing for the tools to read. Drop a note from an earlier Stop.
         clear_python_problem(cwd)
         return SILENT
 
@@ -1180,15 +1245,15 @@ def check_changeset(session, agent_type, roots, settings, cwd):
 
     # Skip re-running when the changeset has not moved since the last report.
     # Python tools run after this skip: a repeat of the same diff must not pay
-    # for them again.
-    fingerprint = (
-        changeset_fingerprint(
-            _watched_diff(diff_text, _fingerprint_files(changed, settings)),
-            _fingerprint_files(changed, settings),
-            cwd,
-        )
-        + hashlib.sha1(violations.encode("utf-8", "replace"), usedforsecurity=False).hexdigest()
-    )
+    # for them again. An empty watched set with no violations is the same skip
+    # without writing a fingerprint, so a markdown-only branch does not run fallow.
+    watched = _fingerprint_files(changed, settings)[:_FINGERPRINT_CAP]
+    if not watched and not violations:
+        clear_python_problem(cwd)
+        return SILENT
+    fingerprint = changeset_fingerprint(
+        _watched_diff(diff_text, watched), watched, cwd
+    ) + hashlib.sha1(violations.encode("utf-8", "replace"), usedforsecurity=False).hexdigest()
     last = sdir / "last-diff"
     try:
         if last.is_file() and last.read_text(encoding="utf-8").strip() == fingerprint:
@@ -1197,25 +1262,17 @@ def check_changeset(session, agent_type, roots, settings, cwd):
     except OSError:
         pass
 
-    changeset = held
-    changeset.seen_file = seen_file
-    changeset.length_changed = _length_files(changed, settings)
+    held.seen_file = seen_file
+    held.length_changed = _length_files(changed, settings)
     who = f"Subagent '{agent_type}'" if agent_type else "This agent"
-    # fallow and the Python tools share one deadline under the hook's 60s.
-    # Each Python tool gets only the time still left.
-    changeset.budget = 55
-    changeset.budget_started = time.monotonic()
     clear_python_problem(cwd)
-    try:
-        findings = run_analyses(changeset)
-    finally:
-        changeset.close()
-    sections = render_findings(who, findings, violations)
+    results = run_analyses(held)
+    sections = render_findings(who, results, violations)
     if not sections:
         return SILENT
     context = "\n".join(sections)
-    dupes = findings.get("duplication") or ""
-    length_blocks = changeset.length_blocks
+    dupes = results["duplication"].text if "duplication" in results else ""
+    length_blocks = results["file-length"].blocks if "file-length" in results else False
 
     blocks_file = sdir / "blocks"
     blocks = _int(blocks_file.read_text(encoding="utf-8") if blocks_file.is_file() else "0", 0)

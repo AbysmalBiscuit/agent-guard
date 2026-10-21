@@ -213,7 +213,7 @@ A root holds any of these directories. The hook runs every `*.py` script in them
 | `tool_checks/` | PreToolUse | tool name as the argument, hook payload JSON on stdin | empty stdout is silence; stdout with exit 0 advises; exit 2 asks the human; any other non-zero exit denies |
 | `checks/` | PostToolUse | one file path as the argument | one finding per line, `  <file>:<line>  [<rule-id>] <message>`, with two leading spaces |
 | `rules/` | PostToolUse | ast-grep YAML rules | ast-grep findings |
-| `changeset_checks/` | Stop, SubagentStop | the base revision as the argument | a finished report section, or nothing |
+| `changeset_checks/` | Stop, SubagentStop | argv[1] is the base revision. argv[2] is the shared base copy, or empty when there is no base. A script treats that copy as read-only. A script that reads only argv[1] works unchanged | a finished report section, or nothing |
 
 The model reads every message, so a message should name what to do instead, not only what went wrong. `checks/` scripts decide for themselves which files they have anything to say about. A root needs its own `sgconfig.yml` only to register a custom ast-grep language.
 
