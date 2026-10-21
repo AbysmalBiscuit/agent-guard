@@ -450,6 +450,169 @@ block_lines = 2
         self.assertNotIn("generated/long.py", report)
         self.assertNotIn("   ", report)
 
+    def test_a_leading_double_star_matches_a_root_file(self):
+        """`**/app.rs` matches `app.rs` at the root and `src/app.rs`. It does
+        not match `app.rs.bak`."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            write_lines(root / "seed.py", 1)
+            commit_all(root, "base")
+            write_lines(root / "app.rs", 9)
+            src = root / "src"
+            src.mkdir()
+            write_lines(src / "app.rs", 9)
+            write_lines(root / "app.rs.bak", 9)
+            enable(
+                root,
+                """\
+fallow = false
+block = true
+
+[file_length]
+enabled = true
+[[file_length.limits]]
+pattern = "**/app.rs"
+warn = 4
+block_lines = 8
+""",
+            )
+
+            result = stop_hook(root)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        specific = json.loads(result.stdout)["hookSpecificOutput"]
+        report = specific["additionalContext"]
+        self.assertIn("  app.rs  ", report)
+        self.assertIn("  src/app.rs  ", report)
+        self.assertNotIn("app.rs.bak", report)
+        self.assertEqual(specific["permissionDecision"], "deny")
+
+    def test_an_inner_double_star_keeps_the_separator(self):
+        """`src/**/x.rs` matches `src/x.rs` and `src/a/x.rs`. It does not match
+        `srcfoo/x.rs`."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            write_lines(root / "seed.py", 1)
+            commit_all(root, "base")
+            src = root / "src"
+            src.mkdir()
+            write_lines(src / "x.rs", 9)
+            nested = src / "a"
+            nested.mkdir()
+            write_lines(nested / "x.rs", 9)
+            decoy = root / "srcfoo"
+            decoy.mkdir()
+            write_lines(decoy / "x.rs", 9)
+            enable(
+                root,
+                """\
+fallow = false
+block = true
+
+[file_length]
+enabled = true
+[[file_length.limits]]
+pattern = "src/**/x.rs"
+warn = 4
+block_lines = 8
+""",
+            )
+
+            result = stop_hook(root)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        specific = json.loads(result.stdout)["hookSpecificOutput"]
+        report = specific["additionalContext"]
+        self.assertIn("  src/x.rs  ", report)
+        self.assertIn("  src/a/x.rs  ", report)
+        self.assertNotIn("srcfoo/x.rs", report)
+        self.assertEqual(specific["permissionDecision"], "deny")
+
+    def test_a_trailing_double_star_stays_inside_its_directory(self):
+        """`vendor/**` matches `vendor/a.py` and `vendor/sub/a.py`. It does not
+        match `vendorX/a.py`."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            write_lines(root / "seed.py", 1)
+            commit_all(root, "base")
+            vendor = root / "vendor"
+            vendor.mkdir()
+            write_lines(vendor / "a.py", 9)
+            nested = vendor / "sub"
+            nested.mkdir()
+            write_lines(nested / "a.py", 9)
+            decoy = root / "vendorX"
+            decoy.mkdir()
+            write_lines(decoy / "a.py", 9)
+            enable(
+                root,
+                """\
+fallow = false
+block = true
+
+[file_length]
+enabled = true
+[[file_length.limits]]
+pattern = "vendor/**"
+warn = 4
+block_lines = 8
+""",
+            )
+
+            result = stop_hook(root)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        specific = json.loads(result.stdout)["hookSpecificOutput"]
+        report = specific["additionalContext"]
+        self.assertIn("  vendor/a.py  ", report)
+        self.assertIn("  vendor/sub/a.py  ", report)
+        self.assertNotIn("vendorX/a.py", report)
+        self.assertEqual(specific["permissionDecision"], "deny")
+
+    def test_a_trailing_double_star_does_not_match_a_hyphen_sibling(self):
+        """`src/**` matches `src/a.py`. It does not match `src-old/a.py`."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            write_lines(root / "seed.py", 1)
+            commit_all(root, "base")
+            src = root / "src"
+            src.mkdir()
+            write_lines(src / "a.py", 9)
+            decoy = root / "src-old"
+            decoy.mkdir()
+            write_lines(decoy / "a.py", 9)
+            enable(
+                root,
+                """\
+fallow = false
+block = true
+
+[file_length]
+enabled = true
+[[file_length.limits]]
+pattern = "src/**"
+warn = 4
+block_lines = 8
+""",
+            )
+
+            result = stop_hook(root)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        specific = json.loads(result.stdout)["hookSpecificOutput"]
+        report = specific["additionalContext"]
+        self.assertIn("  src/a.py  ", report)
+        self.assertNotIn("src-old/a.py", report)
+        self.assertEqual(specific["permissionDecision"], "deny")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -762,17 +762,22 @@ def find_file_length(changed, settings, cwd):
 
 
 def _length_pattern_match(rel, pattern):
-    """Git's default pathspec: `*` stays in one segment, `**` crosses them.
-
-    A pattern matches the whole relative path. `src/app.rs` does not match
-    `vendor/src/app.rs`."""
+    """A git pathspec over the whole relative path. `**` crosses segments."""
     parts = pattern.replace("\\", "/").split("/")
     expr = r"\A"
+    last = len(parts) - 1
     for index, part in enumerate(parts):
         if part == "**":
-            expr += r"(?:.*(?:/)?)?"
+            if index == 0 and last > 0:
+                expr += r"(?:.*/)?"
+            elif index == last and index > 0:
+                expr += r"/.*"
+            elif index == 0:
+                expr += r".*"
+            else:
+                expr += r"/(?:.*/)?"
             continue
-        if index:
+        if index and parts[index - 1] != "**":
             expr += r"/"
         expr += _length_segment(part)
     return re.fullmatch(expr, rel.replace("\\", "/")) is not None
