@@ -6,7 +6,7 @@ One hook package, `plugin/agent_guard`, handles every hook event:
 
 | Event | What runs |
 |---|---|
-| `SessionStart` | `hooks/bootstrap-tools`, which installs ast-grep and fallow when missing. |
+| `SessionStart` | `hooks/bootstrap-tools`, which installs the pinned tools through mise. |
 | `PreToolUse` | Built-in tool checks, plus `tool_checks/` scripts, on the shell command or edit about to run, plus the `mandatory/` tier on shell tools. A check can advise, ask the human, or deny. |
 | `PostToolUse` (edits) | ast-grep `rules/`, built-in file checks and `checks/` scripts on each edited file, reporting only the lines the branch introduced. Advisory. |
 | `Stop`, `SubagentStop` | A fallow audit of the changeset for duplication and over-extraction, plus `changeset_checks/` scripts. A tree can also turn on Python complexity and dead-code analyses, and a file-length check. Advisory unless `block = true`. |
@@ -50,24 +50,27 @@ Three tools are optional. Each feature stays silent when its tool is missing:
 
 | Tool | Used for |
 |---|---|
+| `mise` | installs every pinned tool, and is what the audit runs them through |
 | `ast-grep` | the `rules/` layer |
 | `fallow` | the Stop-time changeset audit for TypeScript and JavaScript |
-| `bunx` | the Python duplication analysis, running jscpd, when a tree turns it on |
 | `git` | limiting findings to the lines the branch introduced |
 
-At session start, `hooks/bootstrap-tools` installs ast-grep and fallow when either is missing by running `plugin/scripts/install.sh`. You can also run that script yourself on Linux, macOS, or Git Bash on Windows:
+`plugin/mise.toml` pins each tool and its version. That file is the only place a version appears. fallow comes from the `github:` backend, which serves the prebuilt release. The Python audit tools and jscpd come from mise too.
+
+Install mise, then install the pins:
 
 ```sh
 bash plugin/scripts/install.sh
 ```
 
-It installs uv, then ast-grep with `uv tool install ast-grep-cli`, then fallow from its latest GitHub release after checking the release's Ed25519 signature with OpenSSL 3. Everything lands in `$XDG_BIN_HOME` (default `~/.local/bin`), which must be on `PATH` for the hooks to find it. Tools already on `PATH` are left alone.
+The script runs `mise install` against `plugin/mise.toml`. A copy already on `PATH` does not win: mise installs the pin anyway. When mise is missing, the script says so and stops.
 
-The session start hook differs from a manual run in three ways:
+At session start, `hooks/bootstrap-tools` runs that script. The session start hook differs from a manual run in two ways:
 
-- It stops the uv installer from editing your shell profiles, so you add `~/.local/bin` to `PATH` yourself. It reminds you at each session start until you do.
 - It records a failed install in `$XDG_STATE_HOME/agent-guard/bootstrap-failed` and skips retries until the plugin version changes. Delete that file to retry sooner.
 - `AGENT_GUARD_NO_BOOTSTRAP=1` turns it off.
+
+Machine provisioning installs mise, then runs `mise install` in the plugin directory. The Stop audit runs the binary `mise which` names for that config, not the first copy on `PATH`. `doctor` reports each pin, the binary the audit runs, and a missing mise or tool.
 
 ## Turn it on for a project
 
@@ -201,7 +204,7 @@ lines = 4000
 | `accept` | `false` | `true` accepts the file at `lines` and fails only when it grows |
 | `lines` | unset | recorded size of an accepted file. An accept row without `lines`, or with `lines` at zero or below, is ignored, and `doctor` reports it as a config error |
 
-complexipy, lizard, vulture and pyscn run through `uvx`, and jscpd through `bunx`, at the versions in `plugin/agent_guard/external.py`. A tree's own `.venv` supplies a tool when it has one. Nothing is installed into the project. A missing launcher, a missing tool, or a timeout leaves the audit silent. `doctor` lists which analyses are on, where each setting came from, and that silence.
+complexipy, lizard, vulture, pyscn and jscpd run at the versions in `plugin/mise.toml`. The audit runs the binary mise pins. A tree's own `.venv` supplies a tool when it has one and mise has no pin for it. Nothing is installed into the project. A missing mise, a missing pin, or a timeout leaves that tool silent. `doctor` lists which analyses are on, where each setting came from, each pin, and that silence.
 
 A clone group is reported when one of its instances sits on a line the branch added, and each fingerprint once per session. A cycle is reported when the base revision did not have it.
 

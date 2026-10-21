@@ -18,7 +18,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "ast-grep-cli", specifier = ">=0.45.3" },
+    { name = "ast-grep-cli" },
     { name = "pyrefly" },
     { name = "ruff" },
 ]
