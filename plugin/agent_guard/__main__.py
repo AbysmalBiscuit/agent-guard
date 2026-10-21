@@ -7,9 +7,9 @@ from pathlib import Path
 
 _package = Path(__file__).resolve().parent
 _root = _package.parent
-# scripts/ stays ahead of the plugin root so a helper import resolves, and
-# agent_guard still resolves as a package from the plugin root.
-sys.path[:1] = [str(_root / "scripts"), str(_root)]
+# The plugin root comes first so agent_guard resolves to this package, not to
+# scripts/agent_guard.py, which forwards older hook sessions here.
+sys.path[:1] = [str(_root), str(_root / "scripts")]
 
 from agent_guard import _state  # noqa: E402
 from agent_guard.adapters import HARNESSES  # noqa: E402
