@@ -3,7 +3,9 @@
 import json
 import os
 import re
+import signal
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 from . import _state
@@ -24,6 +26,34 @@ from .contract import (
 )
 from .process import have, run, run_full
 
+# The bound run_script gave an in-process check. A check that outruns it is
+# silence: a subprocess timeout was silence, and a check the agent cannot wait
+# for should not become a refusal.
+CHECK_TIMEOUT = 5
+
+
+@contextmanager
+def _bounded(seconds):
+    """Raise TimeoutError once `seconds` pass, where the platform allows it.
+
+    Windows has no SIGALRM. There the process watchdog is the only backstop,
+    and a wedged check takes the run down with it instead of being skipped.
+    """
+    if seconds <= 0 or not hasattr(signal, "SIGALRM"):
+        yield
+        return
+
+    def fire(*_):
+        raise TimeoutError
+
+    previous = signal.signal(signal.SIGALRM, fire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
 
 def run_checks(path, roots, cwd):
     """Package file checks, then a root's checks/ scripts.
@@ -36,10 +66,15 @@ def run_checks(path, roots, cwd):
     except OSError:
         source = ""
     for check in FILE_CHECKS:
+        name = check.__module__.rsplit(".", 1)[-1]
         try:
-            lines = check(source, path)
+            with _bounded(CHECK_TIMEOUT):
+                lines = check(source, path)
+        except TimeoutError:
+            _state.log(2, "check", script=name, verdict="silent", reason="timeout")
+            continue
         except Exception:
-            _state.log(2, "check", script=check.__module__, verdict="silent", reason="raised")
+            _state.log(2, "check", script=name, verdict="silent", reason="raised")
             continue
         if lines:
             out.append("\n".join(lines))
@@ -132,7 +167,10 @@ def run_mandatory(payload):
     for check in MANDATORY_CHECKS:
         name = check.__module__.rsplit(".", 1)[-1]
         try:
-            named.append((name, check(payload)))
+            with _bounded(CHECK_TIMEOUT):
+                named.append((name, check(payload)))
+        except TimeoutError:
+            _state.log(2, "check", script=name, verdict="silent", reason="timeout")
         except Exception:
             named.append((name, denied(_failed(name), _failed(name))))
     merged = _merge(named)
@@ -176,11 +214,13 @@ def check_tool(payload, roots, settings, cwd):
     for check in TOOL_CHECKS:
         name = check.__module__.rsplit(".", 1)[-1]
         try:
-            named.append((name, check(payload)))
+            with _bounded(CHECK_TIMEOUT):
+                named.append((name, check(payload)))
+        except TimeoutError:
+            _state.log(2, "check", script=name, verdict="silent", reason="timeout")
         except Exception:
             # A broken built-in degrades to silence rather than denying work.
             _state.log(2, "check", script=name, verdict="silent", reason="raised")
-            continue
     for root in roots:
         checks = root / "tool_checks"
         if not checks.is_dir():
@@ -188,7 +228,7 @@ def check_tool(payload, roots, settings, cwd):
         for script in sorted(checks.glob("*.py")):
             out, code = run_full(
                 [sys.executable, str(script), tool],
-                timeout=5,
+                timeout=CHECK_TIMEOUT,
                 cwd=cwd,
                 stdin=raw,
             )

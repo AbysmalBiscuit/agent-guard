@@ -11,7 +11,9 @@ import pathlib
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
+from unittest.mock import patch
 
 PLUGIN_ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(PLUGIN_ROOT) not in sys.path:
@@ -24,7 +26,7 @@ from agent_guard.checks.comment_length import check as comment_length_check  # n
 from agent_guard.checks.shell_conventions import check as shell_conventions_check  # noqa: E402
 from agent_guard.checks.text_quality import check as text_quality_check  # noqa: E402
 from agent_guard.contract import FINDING_LINE  # noqa: E402
-from agent_guard.file_checks import check_tool  # noqa: E402
+from agent_guard.file_checks import CHECK_TIMEOUT, check_tool  # noqa: E402
 
 EM_DASH = "\u2014"
 
@@ -125,6 +127,32 @@ class ProjectRootScriptsKeepTheContract(unittest.TestCase):
             decision = decide(event("PreToolUse", "Bash", {"command": "ls"}, silent_ask))
             self.assertEqual(decision.permission, "allow")
             self.assertEqual(decision.context, "")
+
+
+class BuiltinCheckTimeout(unittest.TestCase):
+    def test_a_built_in_check_that_overruns_stays_silent(self):
+        def stall(_payload):
+            time.sleep(CHECK_TIMEOUT + 1)
+            raise AssertionError("the bound should have stopped this check")
+
+        stall.__module__ = "agent_guard.checks.stall"
+        with (
+            patch("agent_guard.file_checks.TOOL_CHECKS", (stall,)),
+            patch("agent_guard.file_checks.CHECK_TIMEOUT", 0.05),
+        ):
+
+            class Settings:
+                tool_checks = True
+
+            decision = check_tool(
+                {"tool_name": "Bash", "tool_input": {"command": "ls"}},
+                [],
+                Settings(),
+                pathlib.Path("."),
+            )
+
+        self.assertEqual(decision.permission, "allow")
+        self.assertEqual(decision.context, "")
 
 
 class OneDefinition(unittest.TestCase):
