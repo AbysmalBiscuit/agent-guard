@@ -9,12 +9,13 @@ import tempfile
 import unittest
 
 from hook_support import PLUGIN_ROOT as PLUGIN
-from hook_support import run_hook
+from hook_support import run_hook, stub_mise, tool_version
 
-PINNED = "PINNED-3.34.1"
+PIN = tool_version("fallow")
+PINNED = f"PINNED-{PIN}"
 
 
-def stop_hook(root, extra_env):
+def hook_env(root, extra_env):
     env = os.environ.copy()
     for key in list(env):
         if key.startswith("AGENT_GUARD_"):
@@ -24,6 +25,10 @@ def stop_hook(root, extra_env):
     env["AGENT_GUARD_LOG"] = "0"
     env["XDG_STATE_HOME"] = str(root / "state")
     env.update(extra_env)
+    return env
+
+
+def stop_hook(root, extra_env):
     payload = {
         "session_id": "pinned",
         "cwd": str(root),
@@ -34,28 +39,19 @@ def stop_hook(root, extra_env):
         capture_output=True,
         text=True,
         cwd=root,
-        env=env,
+        env=hook_env(root, extra_env),
         timeout=30,
     )
 
 
 def doctor_hook(root, extra_env):
-    env = os.environ.copy()
-    for key in list(env):
-        if key.startswith("AGENT_GUARD_"):
-            env.pop(key)
-    env["HOME"] = str(root / "home")
-    env["AGENT_GUARD_CONFIG_DIR"] = str(PLUGIN)
-    env["AGENT_GUARD_LOG"] = "0"
-    env["XDG_STATE_HOME"] = str(root / "state")
-    env.update(extra_env)
     return run_hook(
         None,
         args=("doctor",),
         capture_output=True,
         text=True,
         cwd=root,
-        env=env,
+        env=hook_env(root, extra_env),
         timeout=20,
     )
 
@@ -149,9 +145,9 @@ class MissingPinTests(unittest.TestCase):
             older.mkdir()
             write_fallow(older, "OLD-3.22.0")
             log = root / "which.txt"
+            mise = stub_mise(root / "mise")
             env = {
-                "PATH": f"{older}{os.pathsep}{os.environ.get('PATH', '')}",
-                "MISE_FALLOW": str(root / "missing-pin"),
+                "PATH": os.pathsep.join([mise, str(older), os.environ.get("PATH", "")]),
                 "FALLOW_WHICH_LOG": str(log),
             }
 
@@ -162,7 +158,7 @@ class MissingPinTests(unittest.TestCase):
         self.assertEqual(hook.stdout, "")
         self.assertFalse(log.exists())
         self.assertEqual(doctor.returncode, 0, doctor.stderr)
-        self.assertIn("fallow     : not installed  pin 3.34.1", doctor.stdout)
+        self.assertIn(f"fallow     : not installed  pin {PIN}", doctor.stdout)
         self.assertIn("fallow missing", doctor.stdout)
 
 
@@ -184,9 +180,9 @@ class PinnedFallowTests(unittest.TestCase):
             pinned.mkdir()
             pinned_bin = write_fallow(pinned, PINNED)
             log = root / "which.txt"
+            mise = stub_mise(root / "mise", {"fallow": pinned_bin})
             env = {
-                "PATH": f"{older}{os.pathsep}{os.environ.get('PATH', '')}",
-                "MISE_FALLOW": str(pinned_bin),
+                "PATH": os.pathsep.join([str(older), mise, os.environ.get("PATH", "")]),
                 "FALLOW_WHICH_LOG": str(log),
             }
 

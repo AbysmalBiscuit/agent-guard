@@ -1,5 +1,6 @@
 """The binaries the audit runs, resolved from the plugin's mise config."""
 
+import functools
 import os
 import shutil
 import subprocess
@@ -40,12 +41,11 @@ def tool_version(name):
     return str(value) if value else ""
 
 
+@functools.cache
 def pinned_binary(name):
-    """The mise-pinned binary for `name`, or None when mise cannot name one."""
-    override = os.environ.get(f"MISE_{name.upper().replace('-', '_')}")
-    if override is not None:
-        path = Path(override)
-        return str(path) if path.is_file() and os.access(path, os.X_OK) else None
+    """The mise-pinned binary for `name`, or None when mise cannot name one.
+
+    Each hook is one short process, so the answer holds for its lifetime."""
     mise = shutil.which("mise")
     if mise is None or not MISE_CONFIG.is_file():
         return None

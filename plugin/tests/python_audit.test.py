@@ -10,7 +10,7 @@ import textwrap
 import unittest
 
 from hook_support import PLUGIN_ROOT as PLUGIN
-from hook_support import requires_pinned, run_hook
+from hook_support import requires_pinned, run_hook, stub_mise
 
 NOISY = textwrap.dedent(
     """\
@@ -277,7 +277,7 @@ class PythonAuditTests(unittest.TestCase):
             stop(
                 first,
                 checkout,
-                env_extra={"PATH": "/usr/bin:/bin", "MISE_LIZARD": str(root / "no-pin")},
+                env_extra={"PATH": f"{stub_mise(root / 'mise')}:/usr/bin:/bin"},
                 state_home=state,
             )
             stop(second, checkout, state_home=state)
@@ -477,7 +477,7 @@ class PythonAuditTests(unittest.TestCase):
             out = stop(
                 project,
                 checkout,
-                env_extra={"PATH": "/usr/bin:/bin", "MISE_COMPLEXIPY": str(project / "no-pin")},
+                env_extra={"PATH": f"{stub_mise(project.parent / 'mise')}:/usr/bin:/bin"},
             )
             reported = doctor(project, checkout)
         self.assertEqual(out, "")
@@ -497,7 +497,7 @@ class PythonAuditTests(unittest.TestCase):
             blocked = stop(
                 project,
                 checkout,
-                env_extra={"PATH": "/usr/bin:/bin", "MISE_LIZARD": str(project / "no-pin")},
+                env_extra={"PATH": f"{stub_mise(project.parent / 'mise')}:/usr/bin:/bin"},
             )
             stale = doctor(project, checkout)
             # A repeat of the same diff skips the tools, so add a file the
@@ -525,7 +525,7 @@ class PythonAuditTests(unittest.TestCase):
             blocked = stop(
                 project,
                 checkout,
-                env_extra={"PATH": "/usr/bin:/bin", "MISE_LIZARD": str(project / "no-pin")},
+                env_extra={"PATH": f"{stub_mise(project.parent / 'mise')}:/usr/bin:/bin"},
             )
             (project / "work.py").unlink()
             empty = stop(project, checkout)
@@ -546,10 +546,11 @@ class PythonAuditTests(unittest.TestCase):
             commit(project, "seed.py", CALM)
             (project / "work.py").write_text(NOISY, encoding="utf-8")
             checkout = tree_config("complexipy")
+            mise = stub_mise(project.parent / "mise", {"complexipy": stub})
             out = stop(
                 project,
                 checkout,
-                env_extra={"MISE_COMPLEXIPY": str(stub)},
+                env_extra={"PATH": f"{mise}{os.pathsep}{os.environ['PATH']}"},
             )
             reported = doctor(project, checkout)
         self.assertEqual(out, "")
