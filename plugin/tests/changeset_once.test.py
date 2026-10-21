@@ -77,7 +77,7 @@ def install_git_shim(root):
     return bindir, log, real
 
 
-def stop_hook(root, session, bindir, log, real_git):
+def stop_hook(root, session, bindir, log, real_git, path=None):
     env = os.environ.copy()
     for key in list(env):
         if key.startswith("AGENT_GUARD_"):
@@ -86,7 +86,7 @@ def stop_hook(root, session, bindir, log, real_git):
     env["AGENT_GUARD_CONFIG_DIR"] = str(PLUGIN)
     env["AGENT_GUARD_LOG"] = "0"
     env["XDG_STATE_HOME"] = str(root / "state")
-    env["PATH"] = f"{bindir}{os.pathsep}{env.get('PATH', '')}"
+    env["PATH"] = path if path is not None else f"{bindir}{os.pathsep}{env.get('PATH', '')}"
     env["AGENT_GUARD_GIT_LOG"] = str(log)
     env["AGENT_GUARD_REAL_GIT"] = real_git
     payload = {
@@ -111,11 +111,11 @@ def enable(root, body):
 
 
 def diff_against_base(calls):
-    """Patch `git diff` calls. `--name-only` is the file list, not the patch."""
+    """Every `git diff` against the base, including a name listing in that call."""
     counted = []
     for call in calls:
         parts = call.split()
-        if "diff" not in parts or "--name-only" in parts:
+        if "diff" not in parts:
             continue
         if any(not part.startswith("-") and part != "diff" for part in parts):
             counted.append(call)
@@ -321,8 +321,7 @@ class ChangesetOnceTests(unittest.TestCase):
         self.assertEqual(
             [call for call in calls if " diff " in f" {call} " or "ls-files --others" in call],
             [
-                next(call for call in calls if " diff " in f" {call} " and "--name-only" not in call),
-                next(call for call in calls if "diff" in call.split() and "--name-only" in call),
+                next(call for call in calls if " diff " in f" {call} "),
                 "ls-files --others --exclude-standard -z",
             ],
             calls,
@@ -441,9 +440,7 @@ class ChangesetOnceTests(unittest.TestCase):
             root = pathlib.Path(directory)
             (root / "home").mkdir()
             init_repo(root)
-            subprocess.run(
-                ["git", "config", "diff.mnemonicPrefix", "true"], cwd=root, check=True
-            )
+            subprocess.run(["git", "config", "diff.mnemonicPrefix", "true"], cwd=root, check=True)
             subprocess.run(["git", "config", "core.quotePath", "true"], cwd=root, check=True)
             spaced = root / "src" / "my file.go"
             spaced.parent.mkdir()
@@ -480,6 +477,156 @@ class ChangesetOnceTests(unittest.TestCase):
         self.assertIn("src/my file.go", report)
         self.assertIn("src/café.go", report)
         self.assertIn("plain.go", report)
+
+    def test_a_missing_tool_does_not_silence_the_other_analyses(self):
+        """A tool that cannot start returns an empty result. The other
+        analyses still report."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            pkg = root / "pkg"
+            pkg.mkdir()
+            (pkg / "__init__.py").write_text("", encoding="utf-8")
+            (pkg / "a.py").write_text(CLONE, encoding="utf-8")
+            commit_all(root, "base")
+            (pkg / "copy.py").write_text(CLONE, encoding="utf-8")
+            enable(
+                root,
+                textwrap.dedent(
+                    """\
+                    fallow = true
+
+                    [python]
+                    jscpd = true
+                    """
+                ),
+            )
+            # fallow is absent from PATH, so that analysis exits before it
+            # parses. jscpd still has to report the clone. git stays visible.
+            bindir, log, real = install_git_shim(root)
+            hidden = root / "no-fallow"
+            hidden.mkdir()
+            for name in ("git", "bunx", "bun", "uvx"):
+                target = shutil.which(name)
+                if target:
+                    link = hidden / name
+                    link.symlink_to(target)
+            result = stop_hook(
+                root,
+                "missing-tool",
+                bindir,
+                log,
+                real,
+                path=f"{bindir}{os.pathsep}{hidden}",
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("pkg/a.py:1", report)
+        self.assertIn("pkg/copy.py:1", report)
+
+    def test_a_renamed_and_edited_file_keeps_its_findings(self):
+        """A rename plus an edit is a delete and an add. The new path's
+        findings stay in the report."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            (root / "old.py").write_text("x = 1\n", encoding="utf-8")
+            commit_all(root, "base")
+            subprocess.run(["git", "mv", "old.py", "new.py"], cwd=root, check=True)
+            (root / "new.py").write_text(
+                "".join(f"x = {number}\n" for number in range(1, 8)), encoding="utf-8"
+            )
+            enable(
+                root,
+                textwrap.dedent(
+                    """\
+                    fallow = false
+
+                    [file_length]
+                    enabled = true
+
+                    [[file_length.limits]]
+                    extensions = '\\.py$'
+                    warn_lines = 3
+                    """
+                ),
+            )
+            bindir, log, real = install_git_shim(root)
+            result = stop_hook(root, "rename-edit", bindir, log, real)
+            calls = log.read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("new.py", report)
+        self.assertIn("7 lines", report)
+        self.assertTrue(any("--no-renames" in call for call in calls), calls)
+
+    def test_a_changeset_check_reads_a_non_python_file_from_the_base_copy(self):
+        """argv[2] is the full base tree. A check reads a non-Python file there."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            (root / "README.md").write_text("base readme\n", encoding="utf-8")
+            (root / "seed.py").write_text("x = 1\n", encoding="utf-8")
+            commit_all(root, "base")
+            (root / "seed.py").write_text("x = 2\n", encoding="utf-8")
+            enable(root, "fallow = false\n")
+            checks = root / ".agents" / "plugins" / "agent-guard" / "changeset_checks"
+            checks.mkdir()
+            (checks / "readme.py").write_text(
+                textwrap.dedent(
+                    """\
+                    import pathlib
+                    import sys
+
+                    copy = pathlib.Path(sys.argv[2])
+                    text = (copy / "README.md").read_text(encoding="utf-8")
+                    print("  README.md  " + text.strip())
+                    """
+                ),
+                encoding="utf-8",
+            )
+            bindir, log, real = install_git_shim(root)
+            result = stop_hook(root, "full-tree", bindir, log, real)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("base readme", report)
+
+    def test_a_repeat_stop_with_changeset_checks_skips_the_archive(self):
+        """A repeat Stop fingerprints the inputs first. The same changeset
+        extracts no base copy."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            (root / "seed.py").write_text("x = 1\n", encoding="utf-8")
+            (root / "README.md").write_text("base\n", encoding="utf-8")
+            commit_all(root, "base")
+            (root / "seed.py").write_text("x = 2\n", encoding="utf-8")
+            enable(root, "fallow = false\n")
+            checks = root / ".agents" / "plugins" / "agent-guard" / "changeset_checks"
+            checks.mkdir()
+            (checks / "note.py").write_text(
+                "print('  seed.py  the check spoke')\n",
+                encoding="utf-8",
+            )
+            bindir, log, real = install_git_shim(root)
+            first = stop_hook(root, "skip-archive", bindir, log, real)
+            log.write_text("", encoding="utf-8")
+            second = stop_hook(root, "skip-archive", bindir, log, real)
+            second_calls = log.read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(first.returncode, 0, first.stderr)
+        first_report = json.loads(first.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("the check spoke", first_report)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(second.stdout, "")
+        self.assertFalse(any(call.startswith("archive ") for call in second_calls), second_calls)
 
 
 if __name__ == "__main__":
