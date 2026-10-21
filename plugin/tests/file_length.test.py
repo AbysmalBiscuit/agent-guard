@@ -70,7 +70,7 @@ def stop_hook(root, session="test-session", extra_env=None):
 
 def enable(root, body):
     nearer = root / ".agents" / "plugins" / "agent-guard"
-    nearer.mkdir(parents=True)
+    nearer.mkdir(parents=True, exist_ok=True)
     (nearer / "config.toml").write_text(body, encoding="utf-8")
 
 
@@ -100,6 +100,31 @@ block_lines = 8
 
 ON = length_config()
 
+OFF_UNSET = """\
+fallow = false
+block = true
+
+[file_length]
+[[file_length.limits]]
+extensions = '\\.py$'
+warn = 4
+block_lines = 8
+"""
+
+OFF_FALSE = OFF_UNSET.replace("[file_length]\n", "[file_length]\nenabled = false\n", 1)
+
+ALT = """\
+fallow = false
+block = true
+
+[file_length]
+enabled = true
+[[file_length.limits]]
+extensions = '\\.(rs|go)$'
+warn = 4
+block_lines = 8
+"""
+
 
 def context_of(result):
     payload = json.loads(result.stdout)
@@ -108,9 +133,9 @@ def context_of(result):
 
 class FileLengthTests(unittest.TestCase):
     def test_a_long_changed_file_stays_silent_when_the_check_is_off(self):
-        """The check is off until a tree turns it on. A changed file past both
-        limits, a blank file, a path of only spaces, and an untracked notes.txt
-        all stay silent."""
+        """The check is off until a tree turns it on. A limit with enabled
+        unset, and one with enabled false, both stay silent on a long file, a
+        blank file, a path of only spaces, and an untracked notes.txt."""
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "home").mkdir()
@@ -121,11 +146,17 @@ class FileLengthTests(unittest.TestCase):
             (root / "blank.py").write_text("   \n", encoding="utf-8")
             (root / "   ").write_text("x\n", encoding="utf-8")
             (root / "notes.txt").write_text("untracked\n", encoding="utf-8")
+            enable(root, OFF_UNSET)
 
-            result = stop_hook(root)
+            unset = stop_hook(root, session="off-unset")
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "")
+            enable(root, OFF_FALSE)
+            disabled = stop_hook(root, session="off-false")
+
+        self.assertEqual(unset.returncode, 0, unset.stderr)
+        self.assertEqual(unset.stdout, "")
+        self.assertEqual(disabled.returncode, 0, disabled.stderr)
+        self.assertEqual(disabled.stdout, "")
 
     def test_a_file_past_warn_warns_and_one_past_block_blocks(self):
         """A changed file above the warn limit warns, and one above the block
@@ -157,6 +188,37 @@ class FileLengthTests(unittest.TestCase):
         self.assertIn(BLOCK_MESSAGE, report)
         self.assertNotIn("at_warn.py", report)
         self.assertNotIn("old.py", report)
+        self.assertIn(BLOCK_MESSAGE, specific["permissionDecisionReason"])
+
+    def test_an_alternation_regex_warns_and_blocks_a_non_python_file(self):
+        """An extension regex with alternation still selects its types. A
+        9-line Rust file blocks, a 5-line Go file warns, and both use the
+        default messages. A file at the warn limit stays quiet."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            write_lines(root / "seed.rs", 1)
+            commit_all(root, "base")
+            write_lines(root / "at_warn.rs", 4)
+            write_lines(root / "warn.go", 5)
+            write_lines(root / "b.rs", 9)
+            enable(root, ALT)
+
+            result = stop_hook(root)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = json.loads(result.stdout)
+        specific = output["hookSpecificOutput"]
+        self.assertEqual(specific["permissionDecision"], "deny")
+        report = specific["additionalContext"]
+        self.assertIn("warn.go", report)
+        self.assertIn("5 lines", report)
+        self.assertIn(WARN_MESSAGE, report)
+        self.assertIn("b.rs", report)
+        self.assertIn("9 lines", report)
+        self.assertIn(BLOCK_MESSAGE, report)
+        self.assertNotIn("at_warn.rs", report)
         self.assertIn(BLOCK_MESSAGE, specific["permissionDecisionReason"])
 
     def test_a_project_message_replaces_the_default(self):
@@ -192,8 +254,9 @@ class FileLengthTests(unittest.TestCase):
 
     def test_a_path_limit_applies_and_an_accepted_file_fails_only_when_it_grows(self):
         """A path limit and a glob limit replace the type limit for those files.
-        An accepted file stays quiet at its recorded size and blocks once it
-        grows past that size. A blank path and an unmatched glob stay quiet."""
+        A nested glob matches a file under it, and a path does not match the
+        same suffix under vendor/. An accepted file stays quiet at its recorded
+        size and blocks once it grows past that size. A blank path stays quiet."""
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "home").mkdir()
@@ -205,6 +268,12 @@ class FileLengthTests(unittest.TestCase):
             write_lines(src / "app.py", 6)
             write_lines(src / "kept.py", 6)
             write_lines(src / "grown.py", 7)
+            nested = src / "a" / "b"
+            nested.mkdir(parents=True)
+            write_lines(nested / "c.py", 7)
+            vendor = root / "vendor" / "src"
+            vendor.mkdir(parents=True)
+            write_lines(vendor / "app.py", 9)
             write_lines(root / "plain.py", 6)
             (root / "   .py").write_text("x\n", encoding="utf-8")
             enable(
@@ -220,6 +289,11 @@ block_lines = 20
 pattern = "src/*.py"
 accept = true
 lines = 6
+
+[[file_length.limits]]
+pattern = "src/**/*.py"
+accept = true
+lines = 6
 """
                 ),
             )
@@ -229,10 +303,12 @@ lines = 6
         self.assertEqual(result.returncode, 0, result.stderr)
         specific = json.loads(result.stdout)["hookSpecificOutput"]
         report = specific["additionalContext"]
-        self.assertIn("plain.py", report)
-        self.assertIn("grown.py", report)
+        self.assertIn("  plain.py  ", report)
+        self.assertIn("  vendor/src/app.py  ", report)
+        self.assertIn("  src/grown.py  ", report)
+        self.assertIn("  src/a/b/c.py  ", report)
         self.assertIn("accepted at 6", report)
-        self.assertNotIn("app.py", report)
+        self.assertNotIn("  src/app.py  ", report)
         self.assertNotIn("kept.py", report)
         self.assertNotIn("   .py", report)
         self.assertEqual(specific["permissionDecision"], "deny")
@@ -261,10 +337,54 @@ lines = 6
         self.assertIn(BLOCK_MESSAGE, report)
         self.assertNotIn("blank.py", report)
 
+    def test_a_nearer_table_keeps_farther_limits_and_replaces_its_own(self):
+        """A nearer [file_length] merges per key. It omits enabled, so the
+        farther enabled stays on, and its own limits list replaces the farther
+        list. A file past the farther warn limit stays quiet under the nearer
+        limit."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            write_lines(root / "seed.py", 1)
+            commit_all(root, "base")
+            write_lines(root / "warn.py", 5)
+            write_lines(root / "other.py", 9)
+            wider = root / "wider"
+            wider.mkdir()
+            (wider / "config.toml").write_text(
+                """\
+[file_length]
+enabled = true
+warn_message = "farther warn"
+block_message = "farther block"
+[[file_length.limits]]
+extensions = '\\.py$'
+warn = 4
+block_lines = 8
+""",
+                encoding="utf-8",
+            )
+            enable(
+                root,
+                """\
+[file_length]
+warn_message = "nearer warn"
+[[file_length.limits]]
+extensions = '\\.py$'
+warn = 20
+block_lines = 40
+""",
+            )
+
+            result = stop_hook(root, extra_env={"AGENT_GUARD_CONFIG_DIR": str(wider)})
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+
     def test_a_blank_message_keeps_the_default(self):
-        """A blank override is not a message. The default stays, and a broken
-        extension regex, an empty limits list, and an untracked notes.txt stay
-        silent beside a file the check does report."""
+        """A blank override is not a message. The default stays, and an
+        untracked notes.txt stays silent beside a file the check does report."""
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "home").mkdir()
@@ -288,6 +408,47 @@ lines = 6
         report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn(BLOCK_MESSAGE, report)
         self.assertNotIn("notes.txt", report)
+
+    def test_edge_inputs_stay_quiet_beside_a_real_finding(self):
+        """A blank extension, a blank pattern, a repeated-space file name, and
+        a file the ignore pattern covers stay quiet. The worktree's own
+        untracked notes stay quiet beside a file the check does report."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            write_lines(root / "seed.py", 1)
+            commit_all(root, "base")
+            write_lines(root / "block.py", 9)
+            (root / "   ").write_text("x\n" * 9, encoding="utf-8")
+            (root / "notes.txt").write_text("untracked\n", encoding="utf-8")
+            generated = root / "pkg" / "generated"
+            generated.mkdir(parents=True)
+            write_lines(generated / "long.py", 20)
+            enable(
+                root,
+                ON
+                + """
+[[file_length.limits]]
+extensions = ""
+warn = 1
+block_lines = 2
+
+[[file_length.limits]]
+pattern = "   "
+warn = 1
+block_lines = 2
+""",
+            )
+
+            result = stop_hook(root)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("  block.py  ", report)
+        self.assertNotIn("notes.txt", report)
+        self.assertNotIn("generated/long.py", report)
+        self.assertNotIn("   ", report)
 
 
 if __name__ == "__main__":
