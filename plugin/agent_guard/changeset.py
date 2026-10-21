@@ -67,22 +67,26 @@ def format_fresh_groups(groups, seen_file, settings):
     """The clone-report shape, shared by fallow and the Python analysis.
 
     A fingerprint already written this session stays out, so each clone group
-    is reported once."""
-    if not groups or seen_file is None:
+    is reported once. A hand run has no seen file and reports every group."""
+    if not groups:
         return ""
-    try:
-        seen = set(seen_file.read_text(encoding="utf-8").split())
-    except OSError:
+    if seen_file is None:
         seen = set()
+    else:
+        try:
+            seen = set(seen_file.read_text(encoding="utf-8").split())
+        except OSError:
+            seen = set()
     fresh = [g for g in groups if g.get("fingerprint") not in seen]
     if not fresh:
         return ""
-    try:
-        with seen_file.open("a", encoding="utf-8") as fh:
-            for g in fresh:
-                fh.write(f"{g.get('fingerprint')}\n")
-    except OSError:
-        pass
+    if seen_file is not None:
+        try:
+            with seen_file.open("a", encoding="utf-8") as fh:
+                for g in fresh:
+                    fh.write(f"{g.get('fingerprint')}\n")
+        except OSError:
+            pass
 
     lines = []
     for group in fresh[: settings.max_findings]:
@@ -110,10 +114,13 @@ def find_over_extraction(changeset, slot):
     roots = changeset.roots
     if not (settings.test_only or settings.single_caller) or not have("ast-grep"):
         return AnalysisResult()
-    try:
-        seen = set(seen_file.read_text(encoding="utf-8").split())
-    except OSError:
+    if seen_file is None:
         seen = set()
+    else:
+        try:
+            seen = set(seen_file.read_text(encoding="utf-8").split())
+        except OSError:
+            seen = set()
 
     out = []
     checked = 0
@@ -188,11 +195,12 @@ def find_over_extraction(changeset, slot):
                 )
             else:
                 continue
-            try:
-                with seen_file.open("a", encoding="utf-8") as fh:
-                    fh.write(f"{rel}:{name}\n")
-            except OSError:
-                pass
+            if seen_file is not None:
+                try:
+                    with seen_file.open("a", encoding="utf-8") as fh:
+                        fh.write(f"{rel}:{name}\n")
+                except OSError:
+                    pass
             out.append(mark)
     return AnalysisResult("\n".join(out))
 
@@ -916,6 +924,10 @@ def run_analyses(changeset):
     for row in ANALYSES:
         if not row.gate(changeset):
             continue
+        if changeset.budget is None:
+            slot = row.slot(changeset, float("inf")) if row.slot is not None else None
+            results[row.name] = row.analyze(changeset, slot)
+            continue
         left = changeset.budget - (time.monotonic() - changeset.budget_started)
         if row.slot is not None and left <= 0:
             silent = (
@@ -1120,7 +1132,7 @@ class Changeset:
         self.settings = settings
         self.roots = roots
         self.seen_file = seen_file
-        self.session_dir = seen_file.parent
+        self.session_dir = seen_file.parent if seen_file is not None else None
         self.length_changed = _length_files(changed, settings)
         self.budget_started = budget_started
         self.budget = budget
@@ -1349,6 +1361,31 @@ def check_changeset(session, agent_type, roots, settings, cwd):
         held.close()
 
 
+def audit_changeset(roots, settings, cwd, base):
+    """The Stop audit for one checkout, with no session and no hook budget.
+
+    `base` is the revision to compare with. Each tool keeps its own timeout.
+    A repeat of the same changeset still reports every finding. The caller
+    owns the git check: a path that is not a checkout never reaches here."""
+    diff_text, changed, untracked = read_changeset(base, cwd)
+    held = Changeset(
+        base,
+        diff_text,
+        changed,
+        untracked,
+        cwd,
+        settings,
+        roots,
+        None,
+        None,
+        time.monotonic(),
+    )
+    try:
+        return _report(roots, settings, cwd, held)
+    finally:
+        held.close()
+
+
 def _check_inputs(roots):
     """The check scripts a report would run, hashed before any of them runs."""
     digest = hashlib.sha256()
@@ -1394,11 +1431,26 @@ def _audit(agent_type, roots, settings, cwd, held):
     deadline = held.budget_started + held.budget
     base_copy = held.shared_base(deadline) if wants_base else ""
     violations = run_changeset_checks(held.base, roots, cwd, base_copy)
+    return _finish(agent_type, settings, cwd, held, violations)
+
+
+def _report(roots, settings, cwd, held):
+    """The hand-run report. No fingerprint, so a second run prints it again."""
+    wants_base = any((root / "changeset_checks").is_dir() for root in roots)
+    deadline = float("inf")
+    base_copy = held.shared_base(deadline) if wants_base else ""
+    violations = run_changeset_checks(held.base, roots, cwd, base_copy)
+    return _finish("", settings, cwd, held, violations, who="This branch")
+
+
+def _finish(agent_type, settings, cwd, held, violations, who=""):
+    changed = held.changed
     if not changed and not violations:
         clear_python_problem(cwd)
         return SILENT
 
-    who = f"Subagent '{agent_type}'" if agent_type else "This agent"
+    if not who:
+        who = f"Subagent '{agent_type}'" if agent_type else "This agent"
     clear_python_problem(cwd)
     results = run_analyses(held)
     sections = render_findings(who, results, violations)
@@ -1408,11 +1460,15 @@ def _audit(agent_type, roots, settings, cwd, held):
     dupes = results["duplication"].text if "duplication" in results else ""
     length_blocks = results["file-length"].blocks if "file-length" in results else False
 
-    blocks_file = held.session_dir / "blocks"
-    blocks = _int(blocks_file.read_text(encoding="utf-8") if blocks_file.is_file() else "0", 0)
+    blocks = 0
+    session_dir = held.session_dir
+    if session_dir is not None:
+        blocks_file = session_dir / "blocks"
+        blocks = _int(blocks_file.read_text(encoding="utf-8") if blocks_file.is_file() else "0", 0)
     if settings.block and (violations or dupes or length_blocks) and blocks < settings.max_blocks:
-        with contextlib.suppress(OSError):
-            blocks_file.write_text(str(blocks + 1), encoding="utf-8")
+        if session_dir is not None:
+            with contextlib.suppress(OSError):
+                (session_dir / "blocks").write_text(str(blocks + 1), encoding="utf-8")
         if length_blocks:
             reason = f"agent-guard: {settings.file_length.block_message}"
         elif violations:
