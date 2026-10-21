@@ -142,6 +142,32 @@ JSCPD = textwrap.dedent(
     """
 )
 
+JSCPD_TS = textwrap.dedent(
+    """\
+    fallow = false
+
+    [python]
+    jscpd = true
+    jscpd_extensions = '\\.tsx?$'
+    """
+)
+
+TS_CLONE = textwrap.dedent(
+    """\
+    export function duplicatedWork(items: number[]): number {
+      let total = 0;
+      for (const item of items) {
+        if (item > 0) {
+          total += item * 2;
+        } else {
+          total -= 1;
+        }
+      }
+      return total;
+    }
+    """
+)
+
 PYSCN = textwrap.dedent(
     """\
     fallow = false
@@ -212,6 +238,33 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertNotIn("pkg/also.py", report)
         self.assertNotIn("pkg/old.py", report)
         self.assertEqual(second.stdout, "")
+
+    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    def test_jscpd_reports_a_typescript_clone_on_an_added_line(self):
+        """A Stop audit with jscpd_extensions set to TypeScript reports a
+        duplicated block when one copy sits on a line the branch added. A
+        Python file in the same tree stays out of the report."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            src = root / "src"
+            src.mkdir()
+            (src / "work.ts").write_text(TS_CLONE, encoding="utf-8")
+            (root / "notes.py").write_text(CLONE, encoding="utf-8")
+            commit_all(root, "base")
+            (src / "copy.ts").write_text(TS_CLONE, encoding="utf-8")
+            (root / "notes_copy.py").write_text(CLONE, encoding="utf-8")
+            enable(root, JSCPD_TS)
+
+            result = stop_hook(root, session="ts-dupes")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+        self.assertIn("src/work.ts:1", report)
+        self.assertIn("src/copy.ts:1", report)
+        self.assertNotIn(".py", report)
 
     @unittest.skipUnless(shutil.which("uvx"), "requires uvx")
     def test_pyscn_reports_only_a_cycle_the_base_lacked(self):
