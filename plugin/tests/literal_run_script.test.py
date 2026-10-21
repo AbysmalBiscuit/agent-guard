@@ -31,13 +31,15 @@ import sys
 import tempfile
 import types
 
-PLUGIN = pathlib.Path(__file__).parent.parent
-SCRIPT = PLUGIN / "agent_guard" / "process.py"
-CHECKS = PLUGIN / "tool_checks"
-SOURCE = SCRIPT.read_text(encoding="utf-8")
-sys.path.insert(0, str(PLUGIN))
+import agent_guard.process as process_module
+from hook_support import PLUGIN_ROOT
 
-import agent_guard.process as process_module  # noqa: E402
+SCRIPT = pathlib.Path(process_module.__file__)
+CHECKS = PLUGIN_ROOT / "tool_checks"
+SOURCE = SCRIPT.read_text(encoding="utf-8")
+
+# The comparison stays in-process even when AGENT_GUARD_IN_PROCESS is off.
+process_module.IN_PROCESS = True
 
 # Long enough that a check cannot finish inside it, short enough to pay per mutant.
 WEDGE = 0.25
