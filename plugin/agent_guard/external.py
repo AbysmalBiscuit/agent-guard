@@ -80,15 +80,20 @@ def _launcher_path(tool):
     return shutil.which(tool.launcher.name)
 
 
-def tool_problem(tool):
-    """The doctor line for one tool the audit cannot start."""
+def tool_reason(tool):
+    """Why the audit cannot start one tool, without the consequence."""
     name = tool.name
     if _launcher_override(tool.launcher) is not None or name not in TOOL_IDS:
-        return f"{name}: {tool.launcher.label} is not on PATH, so the analysis stayed silent"
+        return f"{name}: {tool.launcher.label} is not on PATH"
     if shutil.which("mise") is None:
-        return f"{name}: mise is not on PATH, so the analysis stayed silent"
+        return f"{name}: mise is not on PATH"
     pin = tool_version(name) or "unset"
-    return f"{name}: pin {pin} is not installed, so the analysis stayed silent"
+    return f"{name}: pin {pin} is not installed"
+
+
+def tool_problem(tool):
+    """The doctor line for one tool the audit cannot start."""
+    return f"{tool_reason(tool)}, so the analysis stayed silent"
 
 
 def tool_binary(tool):
@@ -126,7 +131,7 @@ def tool_argv(name, cwd):
     if binary is None:
         record_python_problem(tool_problem(tool), cwd)
         return None
-    if _launcher_override(launcher) is None and pinned_binary(name) == binary:
+    if _launcher_override(launcher) is None:
         return [binary]
     return launcher.command(binary, tool)
 
@@ -174,6 +179,5 @@ def missing_launcher_notes(enabled, cwd):
         if tool_binary(tools[0]) is not None:
             continue
         names = ", ".join(tool.name for tool in tools)
-        reason = tool_problem(tools[0]).split(", so ", 1)[0]
-        lines.append(f"{reason}, so {names} stays silent")
+        lines.append(f"{tool_reason(tools[0])}, so {names} stays silent")
     return lines
