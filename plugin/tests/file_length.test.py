@@ -149,12 +149,7 @@ block_lines = 8
 
 def _skip_fingerprints(root):
     """How many distinct Stop skip fingerprints this tree has written."""
-    return len(
-        {
-            path.read_text(encoding="utf-8")
-            for path in (root / "state").rglob("last-diff")
-        }
-    )
+    return len({path.read_text(encoding="utf-8") for path in (root / "state").rglob("last-diff")})
 
 
 def context_of(result):

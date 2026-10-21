@@ -210,9 +210,7 @@ FILE_LENGTH_WARN = "Split this file by responsibility, and move tests into focus
 FILE_LENGTH_BLOCK = "Split this file by responsibility, and move tests into focused files."
 
 # Used when the check is on and no tree names its own limits list.
-FILE_LENGTH_DEFAULT_LIMITS = (
-    {"extensions": r"\.py$", "warn_lines": 500, "block_lines": 1000},
-)
+FILE_LENGTH_DEFAULT_LIMITS = ({"extensions": r"\.py$", "warn_lines": 500, "block_lines": 1000},)
 
 
 class FileLengthLimit:
