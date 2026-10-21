@@ -113,7 +113,7 @@ The settings you are most likely to change:
 | `ignore_extra` | unset | regex of paths to skip, added to the built-in generated and vendored paths |
 | `log` | `1` | how much each run appends to `~/agent-guard.log`, from `0` (nothing) to `3` (command text too) |
 
-Python analyses live under `[python]` in a tree's `config.toml`. Each one is off until that tree turns it on. A tree picks the file types with `<analysis>_extensions`. The baseline file holds offenders that stay silent.
+Python analyses live under `[python]` in a tree's `config.toml`. Each one is off until that tree turns it on. A tree picks the file types with `<analysis>_extensions`. The baseline file holds offenders that stay silent. The plugin's `config.toml` ends with a commented `# [python]` header and the keys below it. A key above that header is ignored, so uncomment the header with the keys.
 
 ```toml
 [python]
