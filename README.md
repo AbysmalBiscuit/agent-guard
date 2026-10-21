@@ -51,7 +51,8 @@ Three tools are optional. Each feature stays silent when its tool is missing:
 | Tool | Used for |
 |---|---|
 | `ast-grep` | the `rules/` layer |
-| `fallow` | the Stop-time changeset audit |
+| `fallow` | the Stop-time changeset audit for TypeScript and JavaScript |
+| `bunx` | the Python duplication analysis, running jscpd, when a tree turns it on |
 | `git` | limiting findings to the lines the branch introduced |
 
 At session start, `hooks/bootstrap-tools` installs ast-grep and fallow when either is missing by running `plugin/scripts/install.sh`. You can also run that script yourself on Linux, macOS, or Git Bash on Windows:
@@ -134,6 +135,12 @@ vulture_extensions = '\.py$'
 vulture_baseline = "vulture-whitelist.py"
 vulture_min_confidence = 60
 
+jscpd = true
+jscpd_extensions = '\.py$'
+
+pyscn = true
+pyscn_extensions = '\.py$'
+
 timeout = 20
 ```
 
@@ -153,9 +160,15 @@ timeout = 20
 | `vulture_extensions` | `\.py$` | file types vulture reads |
 | `vulture_baseline` | `vulture-whitelist.py` | names that stay silent |
 | `vulture_min_confidence` | `60` | lowest confidence vulture reports |
+| `jscpd` | `false` | duplicated code, through jscpd |
+| `jscpd_extensions` | `\.py$` | file types jscpd reads |
+| `pyscn` | `false` | import cycles, through pyscn |
+| `pyscn_extensions` | `\.py$` | file types pyscn reads |
 | `timeout` | `20` | seconds one analysis may run |
 
-The tools run through `uvx` at the versions pinned in `plugin/scripts/agent_guard.py`, or from the tree's own `.venv` when it provides them. Nothing is installed into the project. A missing `uv`, a missing tool, or a timeout leaves the audit silent. `doctor` lists which analyses are on, where each setting came from, and that silence.
+complexipy, lizard, vulture, and pyscn run through `uvx` at the versions pinned in `plugin/scripts/agent_guard.py`, or from the tree's own `.venv` when it provides them. jscpd runs through `bunx` at its pinned version. Nothing is installed into the project. A missing runner, a missing tool, or a timeout leaves the audit silent. `doctor` lists which analyses are on, where each setting came from, and that silence.
+
+A clone group is reported when one of its instances sits on a line the branch added, and each fingerprint once per session. A cycle is reported when the base revision did not have it.
 
 `mandatory/` holds checks no setting, root, or environment variable can disable or move. They load only from the installed plugin and run on shell tools.
 

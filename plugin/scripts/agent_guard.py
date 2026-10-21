@@ -214,7 +214,8 @@ def record_python_problem(text, cwd):
     path = _problem_path(cwd)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        prior = path.read_text(encoding="utf-8").strip() if path.is_file() else ""
+        path.write_text(f"{prior}\n{text}".strip() + "\n", encoding="utf-8")
     except OSError:
         pass
 
@@ -236,7 +237,14 @@ def clear_python_problem(cwd):
 def tool_command(name, cwd):
     """The argv that launches one analysis tool, or None when it cannot start.
 
-    The tree's own .venv copy wins. Otherwise uvx runs the version pinned here."""
+    The tree's own .venv copy wins. Otherwise uvx runs the version pinned here.
+    jscpd is a Node tool, so it runs through bunx at the pinned version."""
+    if name == "jscpd":
+        bunx = shutil.which("bunx")
+        if bunx is None:
+            record_python_problem("jscpd: bunx is not on PATH, so the analysis stayed silent", cwd)
+            return None
+        return [bunx, "--bun", f"jscpd@{JSCPD_VERSION}"]
     own = Path(cwd) / ".venv" / "bin" / name
     if own.is_file() and os.access(own, os.X_OK):
         return [str(own)]
@@ -562,23 +570,36 @@ def _str(value, fallback):
 LAYERS = ("rules", "checks", "tool_checks", "changeset")
 
 # uvx installs these when the tree does not already provide the tool.
+# jscpd is the npm package; the PyPI package of the same version scans nothing.
 PYTHON_TOOL_VERSIONS = {
     "complexipy": "8.0.1",
     "lizard": "1.24.1",
     "vulture": "2.16",
+    "pyscn": "1.32.5",
 }
+JSCPD_VERSION = "5.4.2"
+# jscpd's default min-tokens treats a short file list as empty.
+JSCPD_MIN_LINES = "5"
+JSCPD_MIN_TOKENS = "5"
+# jscpd's default file-size bound skips a large Python file. No line bound:
+# a line bound hides the same files.
+JSCPD_MAX_SIZE = "100m"
 
 # extensions is the file types a tree asks this analysis to run on.
-PYTHON_ANALYSES = ("complexipy", "lizard", "vulture")
+PYTHON_ANALYSES = ("complexipy", "lizard", "vulture", "jscpd", "pyscn")
 PYTHON_DEFAULT_EXTENSIONS = {
     "complexipy": r"\.py$",
     "lizard": r"\.(py|ts|tsx)$",
     "vulture": r"\.py$",
+    "jscpd": r"\.py$",
+    "pyscn": r"\.py$",
 }
 PYTHON_DEFAULT_BASELINE = {
     "complexipy": "complexipy-snapshot.json",
     "lizard": "whitelizard.txt",
     "vulture": "vulture-whitelist.py",
+    "jscpd": "",
+    "pyscn": "",
 }
 
 
@@ -1086,9 +1107,16 @@ def find_duplication(base, seen_file, settings, cwd):
         if any(settings.ignore_re.search(i.get("file", "")) for i in instances):
             continue
         groups.append(group)
-    if not groups:
-        return ""
+    return format_fresh_groups(groups, seen_file, settings)
 
+
+def format_fresh_groups(groups, seen_file, settings):
+    """The clone-report shape, shared by fallow and the Python analysis.
+
+    A fingerprint already written this session stays out, so each clone group
+    is reported once."""
+    if not groups or seen_file is None:
+        return ""
     try:
         seen = set(seen_file.read_text(encoding="utf-8").split())
     except OSError:
@@ -1486,20 +1514,260 @@ def find_vulture(changed, analysis, settings, cwd, base, timeout):
     return "\n".join(lines[: settings.max_findings])
 
 
-def find_python(changed, settings, cwd, base, budget):
+def _rel_of(name, cwd):
+    """A tool path as a path relative to the analysis root."""
+    try:
+        return str(Path(name).resolve().relative_to(cwd))
+    except (OSError, ValueError):
+        text = str(name)
+        prefix = str(cwd) + os.sep
+        return text[len(prefix) :] if text.startswith(prefix) else text
+
+
+def _on_added_line(instance, line_count, added):
+    """True when the branch added a line inside this instance. None means git
+    has never tracked the file, so every line of it is the branch's."""
+    lines = added.get(instance["file"])
+    if lines is None and instance["file"] in added:
+        return True
+    if not lines:
+        return False
+    start = instance["start_line"] or 1
+    return any(line in lines for line in range(start, start + (line_count or 1)))
+
+
+def python_clone_groups(data, cwd, added):
+    """jscpd's pair list, grouped the way fallow groups a clone.
+
+    Sites are collected by fragment first. A group stays only when one of its
+    instances sits on a line the branch added."""
+    groups = {}
+    for pair in data.get("duplicates") or []:
+        fragment = pair.get("fragment") or ""
+        fingerprint = hashlib.sha1(fragment.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
+        instances = []
+        for side in ("firstFile", "secondFile"):
+            loc = pair.get(side) or {}
+            start = (loc.get("startLoc") or {}).get("line") or loc.get("start")
+            instances.append({"file": _rel_of(loc.get("name") or "", cwd), "start_line": start})
+        line_count = pair.get("lines")
+        group = groups.setdefault(
+            fingerprint,
+            {"fingerprint": fingerprint, "line_count": line_count, "instances": []},
+        )
+        for instance in instances:
+            if instance not in group["instances"]:
+                group["instances"].append(instance)
+    kept = []
+    for group in groups.values():
+        instances = group["instances"]
+        if any(_on_added_line(instance, group["line_count"], added) for instance in instances):
+            kept.append(group)
+    return kept
+
+
+def render_clone_groups(groups, seen_file, settings):
+    """One block per fresh fingerprint, remembered so a second Stop stays quiet."""
+    kept = []
+    for group in groups:
+        instances = group.get("instances") or []
+        if any(settings.ignore_re.search(i.get("file", "")) for i in instances):
+            continue
+        kept.append(group)
+    return format_fresh_groups(kept, seen_file, settings)
+
+
+def find_jscpd(changed, analysis, settings, cwd, base, timeout, seen_file):
+    """Clone groups among Python files, when one instance sits on an added line."""
+    py_changed = [rel for rel in changed if analysis.ext_re.search(rel)]
+    if not py_changed:
+        return ""
+    cmd = tool_command("jscpd", cwd)
+    if cmd is None:
+        return ""
+    added = {rel: changed_lines(str(cwd / rel), base, cwd) for rel in py_changed}
+    try:
+        out_dir = Path(tempfile.mkdtemp(prefix="jscpd-", dir=STATE_DIR))
+    except OSError:
+        return ""
+    report = out_dir / "jscpd-report.json"
+    argv = [
+        *cmd,
+        "--format",
+        "python",
+        "--min-lines",
+        JSCPD_MIN_LINES,
+        "--min-tokens",
+        JSCPD_MIN_TOKENS,
+        "--max-size",
+        JSCPD_MAX_SIZE,
+        "--reporters",
+        "json",
+        "--output",
+        str(out_dir),
+        "--absolute",
+        "--silent",
+        "--no-gitignore",
+        ".",
+    ]
+    # --format python selects the language, so the scan points at the tree
+    # root instead of putting every tracked file on argv.
+    _run_python_tool(argv, timeout=timeout, cwd=cwd, name="jscpd")
+    try:
+        data = json.loads(report.read_text(encoding="utf-8")) if report.is_file() else None
+    except (OSError, ValueError):
+        data = None
+    shutil.rmtree(out_dir, ignore_errors=True)
+    if not data:
+        return ""
+    return render_clone_groups(python_clone_groups(data, cwd, added), seen_file, settings)
+
+
+def _module_in_root(module, root):
+    """A pyscn module as a path relative to the analysis root.
+
+    pyscn dots every parent directory into the module name, so a copy under
+    the state directory carries those segments. file_path does not."""
+    file_path = str(module.get("file_path") or "")
+    if file_path:
+        try:
+            rel = Path(file_path).resolve().relative_to(Path(root).resolve())
+        except ValueError:
+            return ""
+        return str(rel.with_suffix("")).replace(os.sep, ".").removesuffix(".__init__")
+    return str(module.get("module_name") or "")
+
+
+def cycle_keys(raw, root):
+    """One stable key per cycle, modules relative to the analysis root."""
+    if not raw or not raw.strip():
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    analysis = (data.get("system") or {}).get("dependency_analysis") or {}
+    metrics = analysis.get("module_metrics") or {}
+    cycles = (analysis.get("circular_dependencies") or {}).get("circular_dependencies") or []
+    keys = set()
+    for cycle in cycles:
+        modules = []
+        for name in cycle.get("modules") or []:
+            metric = metrics.get(name) or {}
+            rel = _module_in_root({"file_path": metric.get("file_path"), "module_name": name}, root)
+            if rel:
+                modules.append(rel)
+        if modules:
+            keys.add(" ".join(sorted(modules)))
+    return keys
+
+
+def _extract_base(base, cwd, dest, deadline):
+    """Python files at the base revision, under dest, inside the shared deadline.
+
+    One git archive feeds tar, so the copy is one subprocess, bounded by the
+    time still left."""
+    left = deadline - time.monotonic()
+    if left <= 0:
+        return False
+    archive = None
+    try:
+        archive = subprocess.Popen(
+            ["git", "archive", "--format=tar", base],
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        tar = subprocess.run(
+            ["tar", "-x", "-C", str(dest)],
+            stdin=archive.stdout,
+            timeout=left,
+            check=False,
+        )
+        if archive.stdout:
+            archive.stdout.close()
+        archive.wait(timeout=left)
+    except (OSError, subprocess.TimeoutExpired):
+        if archive is not None:
+            with contextlib.suppress(OSError):
+                archive.kill()
+        return False
+    if tar.returncode != 0 or archive.returncode != 0:
+        return False
+    # pyscn reads Python. Other files from the archive are not modules.
+    for path in Path(dest).rglob("*"):
+        if path.is_file() and path.suffix not in (".py", ".pyi"):
+            path.unlink(missing_ok=True)
+    return True
+
+
+def find_pyscn(changed, analysis, settings, cwd, base, timeout):
+    """Import cycles the working tree has and the base revision did not."""
+    if not any(analysis.ext_re.search(rel) for rel in changed):
+        return ""
+    cmd = tool_command("pyscn", cwd)
+    if cmd is None:
+        return ""
+    started = time.monotonic()
+    current_raw = _run_python_tool(
+        [*cmd, "analyze", "--select", "deps", "--json", "--output", "-", "."],
+        timeout=timeout,
+        cwd=cwd,
+        name="pyscn",
+    )
+    current = cycle_keys(current_raw, cwd)
+    if not current:
+        return ""
+    left = timeout - (time.monotonic() - started)
+    if left <= 0:
+        record_python_problem(
+            "pyscn: no time left under the hook deadline, so the analysis stayed silent", cwd
+        )
+        return ""
+    try:
+        parent = Path(tempfile.mkdtemp(prefix="pyscn-base-", dir=STATE_DIR))
+    except OSError:
+        return ""
+    # pyscn names a module from the directory it scans, so the copy sits in a
+    # directory with the tree's own name. The same cycle then has the same key.
+    dest = parent / cwd.name
+    deadline = time.monotonic() + left
+    try:
+        dest.mkdir()
+        if not _extract_base(base, cwd, dest, deadline):
+            record_python_problem(
+                "pyscn: the base revision copy did not finish, so the analysis stayed silent",
+                cwd,
+            )
+            return ""
+        base_raw = _run_python_tool(
+            [*cmd, "analyze", "--select", "deps", "--json", "--output", "-", "."],
+            timeout=max(deadline - time.monotonic(), 1),
+            cwd=dest,
+            name="pyscn",
+        )
+    finally:
+        shutil.rmtree(parent, ignore_errors=True)
+    base_keys = cycle_keys(base_raw, dest)
+    if base_keys is None:
+        return ""
+    fresh = sorted(current - base_keys)
+    if not fresh:
+        return ""
+    lines = ["  import cycles the base revision did not have:"]
+    lines.extend(f"    {key}" for key in fresh[: settings.max_findings])
+    return "\n".join(lines)
+
+
+def find_python(changed, settings, cwd, base, budget, seen_file=None):
     """Findings from the analyses this tree turned on.
 
     `budget` is seconds left under the Stop hook's own deadline. Each tool gets
     only what remains, and a tool with none left is skipped and recorded."""
     clear_python_problem(cwd)
     sections = []
-    runners = {
-        "complexipy": find_complexipy,
-        "lizard": find_lizard,
-        "vulture": find_vulture,
-    }
     started = time.monotonic()
-    for name, runner in runners.items():
+    for name in ("complexipy", "lizard", "vulture", "jscpd", "pyscn"):
         analysis = settings.python[name]
         if not analysis.enabled:
             continue
@@ -1510,7 +1778,17 @@ def find_python(changed, settings, cwd, base, budget):
                 cwd,
             )
             continue
-        text = runner(changed, analysis, settings, cwd, base, min(analysis.timeout, left))
+        slot = min(analysis.timeout, left)
+        if name == "jscpd":
+            text = find_jscpd(changed, analysis, settings, cwd, base, slot, seen_file)
+        elif name == "pyscn":
+            text = find_pyscn(changed, analysis, settings, cwd, base, slot)
+        elif name == "complexipy":
+            text = find_complexipy(changed, analysis, settings, cwd, base, slot)
+        elif name == "lizard":
+            text = find_lizard(changed, analysis, settings, cwd, base, slot)
+        else:
+            text = find_vulture(changed, analysis, settings, cwd, base, slot)
         if text:
             sections.append(text)
     return "\n".join(sections)
@@ -1628,7 +1906,7 @@ def check_changeset(event, session, agent_type, roots, settings, cwd):
             "than one caller, or a name that explains something the inlined code "
             "would not."
         )
-    python = find_python(changed, settings, cwd, base, audit_deadline - time.monotonic())
+    python = find_python(changed, settings, cwd, base, audit_deadline - time.monotonic(), seen_file)
     if python:
         sections.append(
             f"{who} introduced findings the tree asked this audit to report:\n\n{python}\n"
@@ -1731,11 +2009,17 @@ def doctor(cwd):
     if problem:
         print(f"  python tools : {problem}")
     elif any(analysis.enabled for analysis in settings.python.values()):
-        missing = [
-            name for name in PYTHON_ANALYSES if settings.python[name].enabled and not have(name)
+        missing_uv = [
+            name
+            for name in PYTHON_ANALYSES
+            if settings.python[name].enabled and name != "jscpd" and not have(name)
         ]
-        if missing and not have("uvx"):
-            print("  python tools : uv is not on PATH, so " + ", ".join(missing) + " stays silent")
+        if missing_uv and not have("uvx"):
+            print(
+                "  python tools : uv is not on PATH, so " + ", ".join(missing_uv) + " stays silent"
+            )
+        if settings.python["jscpd"].enabled and not have("jscpd") and not have("bunx"):
+            print("  python tools : bunx is not on PATH, so jscpd stays silent")
     if settings.scope == "diff":
         print("  scope=diff       -> per-file findings limited to lines the branch")
         print("                      added; findings older than it stay quiet")

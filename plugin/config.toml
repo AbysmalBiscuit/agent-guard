@@ -129,4 +129,10 @@ extensions = '\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|pyi|rs|go|sh|bash|sql|toml|ya?
 # vulture_baseline = "vulture-whitelist.py"
 # vulture_min_confidence = 60
 
+# jscpd = false
+# jscpd_extensions = '\.py$'
+
+# pyscn = false
+# pyscn_extensions = '\.py$'
+
 # timeout = 20
