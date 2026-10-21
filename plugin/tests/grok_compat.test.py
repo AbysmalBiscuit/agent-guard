@@ -5,10 +5,11 @@ import json
 import os
 import pathlib
 import subprocess
+import sys
 import tempfile
 import unittest
 
-from hook_support import run_hook
+from hook_support import PLUGIN_ROOT, run_hook
 
 EN_DASH = chr(0x2013)
 
@@ -69,6 +70,30 @@ class GrokToolTests(unittest.TestCase):
         output = json.loads(result.stdout)["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("--replace", output["permissionDecisionReason"])
+
+    def test_former_script_path_still_guards(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = grok_payload(
+                "PreToolUse",
+                directory,
+                toolName="run_terminal_command",
+                toolInput={"command": "rg -rn foo src", "description": "search"},
+            )
+            env = os.environ.copy()
+            env["XDG_STATE_HOME"] = str(pathlib.Path(directory) / "state")
+            result = subprocess.run(
+                [sys.executable, str(PLUGIN_ROOT / "scripts" / "agent_guard.py"), "--grok"],
+                input=json.dumps(payload),
+                capture_output=True,
+                text=True,
+                cwd=directory,
+                env=env,
+                timeout=15,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = json.loads(result.stdout)["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "deny")
 
     def test_search_replace_reaches_edit_checks(self):
         with tempfile.TemporaryDirectory() as directory:
