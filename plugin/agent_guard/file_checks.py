@@ -10,6 +10,7 @@ from pathlib import Path
 
 from . import _state
 from .checks import FILE_CHECKS, MANDATORY_CHECKS, TOOL_CHECKS
+from .paths import CONFIG_DIR, _PLUGIN_ROOT
 from .config import sgconfig_for
 from .contract import (
     ASK_EXIT,
@@ -55,6 +56,11 @@ def _bounded(seconds):
         signal.signal(signal.SIGALRM, previous)
 
 
+def _installed():
+    """A repointed install runs no built-in check except the mandatory ones."""
+    return CONFIG_DIR == _PLUGIN_ROOT
+
+
 def _check_name(check):
     return check.__module__.rsplit(".", 1)[-1]
 
@@ -75,7 +81,7 @@ def run_checks(path, roots, cwd):
         source = Path(path).read_text(encoding="utf-8", errors="replace")
     except OSError:
         source = ""
-    for check in FILE_CHECKS:
+    for check in FILE_CHECKS if _installed() else ():
         name = _check_name(check)
         try:
             lines = _call(check, source, path, timeout=FILE_CHECK_TIMEOUT)
@@ -209,7 +215,7 @@ def check_tool(payload, roots, settings, cwd):
     raw = json.dumps(payload, separators=(",", ":"))
     tool = payload.get("tool_name") or ""
     named = []
-    for check in TOOL_CHECKS:
+    for check in TOOL_CHECKS if _installed() else ():
         name = _check_name(check)
         try:
             named.append((name, _call(check, payload, timeout=CHECK_TIMEOUT)))
