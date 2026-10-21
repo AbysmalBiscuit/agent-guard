@@ -11,7 +11,7 @@ from .contract import SILENT, Decision, git_base
 from .doctor import doctor
 from .file_checks import check_file, check_tool, run_mandatory
 from .paths import SCRIPTS_DIR
-from .process import run, succeeds
+from .process import have, run, succeeds
 
 
 def decide(payload):
@@ -119,6 +119,9 @@ def run_audit(cwd, base, err):
     """Print the Stop audit as plain text. `base` replaces the configured base."""
     if not cwd.is_dir():
         print(f"agent-guard: path is not a directory: {cwd}", file=err)
+        return 2
+    if not have("git") or not succeeds(["git", "rev-parse", "--git-dir"], cwd=cwd):
+        print(f"agent-guard: not a git checkout: {cwd}", file=err)
         return 2
     roots = discover_roots(cwd)
     cfg = load_config(roots)
