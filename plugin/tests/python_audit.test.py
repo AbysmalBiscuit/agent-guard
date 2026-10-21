@@ -10,7 +10,7 @@ import textwrap
 import unittest
 
 from hook_support import PLUGIN_ROOT as PLUGIN
-from hook_support import run_hook
+from hook_support import requires_pinned, run_hook
 
 NOISY = textwrap.dedent(
     """\
@@ -285,6 +285,7 @@ class PythonAuditTests(unittest.TestCase):
         self.assertIn("pin", reported)
         self.assertIn("stayed silent", reported)
 
+    @requires_pinned("vulture")
     def test_a_new_file_committed_on_the_branch_still_reports(self):
         """A file the merge-base never had, committed on the branch, is still
         the changeset. Stop names the offender it added."""
@@ -331,6 +332,7 @@ class PythonAuditTests(unittest.TestCase):
             out = stop(project)
         self.assertEqual(out, "")
 
+    @requires_pinned("complexipy")
     def test_complexipy_reports_only_the_function_the_changeset_touched(self):
         out = self.pair("complexipy")
         self.assertIn("work.py", out)
@@ -339,6 +341,7 @@ class PythonAuditTests(unittest.TestCase):
         self.assertNotIn("Box::kept", out)
         self.assertNotIn("parked.py", out)
 
+    @requires_pinned("lizard")
     def test_lizard_reports_only_the_function_the_changeset_touched(self):
         out = self.pair("lizard")
         self.assertIn("work.py", out)
@@ -347,6 +350,7 @@ class PythonAuditTests(unittest.TestCase):
         self.assertNotIn("Box::kept", out)
         self.assertNotIn("parked.py", out)
 
+    @requires_pinned("vulture")
     def test_vulture_reports_only_dead_code_the_branch_added(self):
         out = self.pair("vulture")
         self.assertIn("work.py", out)
@@ -446,6 +450,7 @@ class PythonAuditTests(unittest.TestCase):
         self.assertNotIn("Box::fresh", out)
         self.assertNotIn("parameters", out)
 
+    @requires_pinned("complexipy")
     def test_a_timeout_leaves_the_audit_silent_and_doctor_shows_it(self):
         """A tool that outruns its timeout adds no finding. The next doctor
         run, a separate process, still names that timeout."""
@@ -479,6 +484,7 @@ class PythonAuditTests(unittest.TestCase):
         self.assertIn("pin", reported)
         self.assertIn("stayed silent", reported)
 
+    @requires_pinned("lizard")
     def test_a_clean_stop_clears_a_recorded_python_tool_problem(self):
         """A Stop that could not start uv records the gap. A later Stop that
         runs the tool and finds nothing clears that note, so doctor is quiet."""
@@ -506,6 +512,7 @@ class PythonAuditTests(unittest.TestCase):
         self.assertNotIn("python tools", reported)
         self.assertNotIn("stayed silent", reported)
 
+    @requires_pinned("lizard")
     def test_an_empty_changeset_clears_a_recorded_python_tool_problem(self):
         """A Stop with no changed file still drops a note an earlier Stop left,
         so doctor does not keep a gap the tools no longer have work for."""

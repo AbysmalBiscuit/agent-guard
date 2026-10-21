@@ -11,7 +11,7 @@ import textwrap
 import unittest
 
 from hook_support import PLUGIN_ROOT as PLUGIN
-from hook_support import run_hook
+from hook_support import requires_pinned, run_hook
 
 CLONE = textwrap.dedent(
     """\
@@ -246,7 +246,7 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
 
-    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    @requires_pinned("jscpd")
     def test_jscpd_reports_a_new_clone_once_per_session(self):
         """A clone group is reported when one instance sits on a line the branch
         added, in fallow's clone-report shape, and a second Stop in the same
@@ -279,7 +279,7 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertNotIn("pkg/old.py", report)
         self.assertEqual(second.stdout, "")
 
-    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    @requires_pinned("jscpd")
     def test_jscpd_reports_a_typescript_clone_on_an_added_line(self):
         """`\\.tsx?$` reports a clone across `.ts` and `.tsx`, naming both paths.
 
@@ -312,7 +312,7 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertIn("src/copy.tsx:1", report)
         self.assertNotIn(".py", report)
 
-    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    @requires_pinned("jscpd")
     def test_jscpd_reports_a_tsx_copy_of_a_committed_ts_block(self):
         """`\\.tsx?$` reports a `.tsx` copy of a `.ts` block committed on the
         base. The added file is the only change. Both paths appear in the
@@ -343,7 +343,7 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertIn("src/copy.tsx:1", report)
         self.assertNotIn(".py", report)
 
-    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    @requires_pinned("jscpd")
     def test_jscpd_reports_an_mjs_clone_on_an_added_line(self):
         """A Stop audit with jscpd_extensions set to `.mjs` reports a duplicated
         block when one copy sits on a line the branch added. A Python clone in
@@ -370,7 +370,7 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertIn("src/copy.mjs:1", report)
         self.assertNotIn(".py", report)
 
-    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    @requires_pinned("jscpd")
     def test_jscpd_reports_an_mts_clone_on_an_added_line(self):
         """`\\.(mts|cts)$` selects those files, and a duplicated `.mts` block
         on an added line is reported. A Python clone stays out of the report."""
@@ -396,7 +396,7 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertIn("src/copy.mts:1", report)
         self.assertNotIn(".py", report)
 
-    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    @requires_pinned("jscpd")
     def test_jscpd_leaves_a_cts_copy_of_a_ts_block_out_of_the_report(self):
         """`\\.ts$` selects `.ts` only. A `.cts` copy of an added `.ts` block
         stays out of the report."""
@@ -418,7 +418,7 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
 
-    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    @requires_pinned("jscpd")
     def test_jscpd_scans_typescript_inside_an_anchored_extension(self):
         """`^src/.*\\.ts$` selects TypeScript under src, so a clone there is
         reported."""
@@ -442,7 +442,7 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertIn("src/work.ts:1", report)
         self.assertIn("src/copy.ts:1", report)
 
-    @unittest.skipUnless(shutil.which("uvx"), "requires uvx")
+    @requires_pinned("pyscn")
     def test_pyscn_reports_only_a_cycle_the_base_lacked(self):
         """A cycle is reported when the base revision did not have it. A cycle
         already present at the base stays silent. The same holds when the state
