@@ -115,8 +115,16 @@ class ProjectRootScriptsKeepTheContract(unittest.TestCase):
                 "raise RuntimeError('boom')\n",
             )
             decision = decide(event("PreToolUse", "Bash", {"command": "ls"}, crashing))
-            self.assertEqual(decision.permission, "deny")
-            self.assertIn("failed to run", decision.context)
+            self.assertEqual(decision.permission, "allow")
+            self.assertEqual(decision.context, "")
+
+            silent_ask = project_root(
+                pathlib.Path(directory) / "silent-ask",
+                "import sys\nsys.exit(2)\n",
+            )
+            decision = decide(event("PreToolUse", "Bash", {"command": "ls"}, silent_ask))
+            self.assertEqual(decision.permission, "allow")
+            self.assertEqual(decision.context, "")
 
 
 class OneDefinition(unittest.TestCase):

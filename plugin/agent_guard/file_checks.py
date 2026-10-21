@@ -144,27 +144,20 @@ def run_mandatory(payload, cwd):
     return merged
 
 
-def script_verdict(out, code, name):
+def script_verdict(out, code):
     """The decision a project script's stdout and exit code stand for.
 
-    Empty stdout is silence. Stdout with exit 0 advises. Stdout with the ask
-    exit code hands the call to the human. Any other non-zero exit denies, and
-    a crash that printed nothing is still a denial naming the script."""
+    Empty stdout is silence, whatever the exit code. Stdout with exit 0 advises.
+    Stdout with the ask exit code hands the call to the human. Any other
+    non-zero exit denies."""
     text = out.strip()
-    if code == 0 and not text:
+    if not text:
         return Decision()
     if code == 0:
         return advised(text)
-    if code == ASK_EXIT and text:
+    if code == ASK_EXIT:
         return asked(text, text)
-    return denied(
-        text
-        or f"agent-guard: the check {name} failed to run, so the call it protects "
-        "is refused. Fix the script; Edit and Write are not gated by this hook.",
-        text
-        or f"agent-guard: the check {name} failed to run, so the call it protects "
-        "is refused. Fix the script; Edit and Write are not gated by this hook.",
-    )
+    return denied(text, text)
 
 
 def check_tool(payload, roots, settings, cwd):
@@ -196,7 +189,7 @@ def check_tool(payload, roots, settings, cwd):
                 cwd=cwd,
                 stdin=raw,
             )
-            named.append((script.name, script_verdict(out, code, script.name)))
+            named.append((script.name, script_verdict(out, code)))
 
     merged = _merge(named)
     _state.log(

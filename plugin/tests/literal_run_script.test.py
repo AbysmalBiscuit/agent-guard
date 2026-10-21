@@ -51,7 +51,7 @@ def main():
     payload = '{"tool_input":{"command":"ls"}}'
     if (out, code) != (f"Bash\n{payload}\n{pathlib.Path(directory).name}\n", 2):
         return fail(f"script contract broke: {(out, code)!r}")
-    decision = script_verdict(out, code, "ask.py")
+    decision = script_verdict(out, code)
     if decision.permission != "ask":
         return fail(f"ask exit was not an ask: {decision.permission}")
     print("project script stays a subprocess: ok")
