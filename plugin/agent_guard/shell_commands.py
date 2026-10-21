@@ -18,6 +18,8 @@ UNMODELLED = re.compile(r"\$'|`|\\\n|(?<!<)<<(?!<)")
 HEREDOC = re.compile(r"<<(-?)[ \t]*(['\"]?)([^\s;&|<>()'\"]+)\2")
 # A short-option cluster that carries `-c`, such as `-c`, `-lc` or `-ec`.
 SHELL_SCRIPT_FLAG = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")
+# `env -S` or `--split-string`: alone, in a cluster such as `-iS`, or with the string attached.
+ENV_SPLIT = re.compile(r"^(?:--split-string(?:=|$)|-[A-Za-z]*S)(.*)$", re.DOTALL)
 # Words that leave the real command word still ahead.
 WRAPPERS = {
     "sudo",
@@ -46,7 +48,7 @@ WRAPPERS = {
 WRAPPER_OPTS = {
     "sudo": {"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U", "-T"},
     "doas": {"-u", "-C"},
-    "env": {"-u", "-C", "-S", "--unset", "--chdir", "--split-string"},
+    "env": {"-u", "-C", "--unset", "--chdir"},
     "timeout": {"-k", "-s", "--kill-after", "--signal"},
     "nice": {"-n"},
     "ionice": {"-c", "-n"},
@@ -230,6 +232,7 @@ def _operator(token):
 def _commands(tokens, keep_backslashes, depth):
     found = []
     words, op, wrapper, skip, herestring, stdin = [], "", "", False, False, None
+    split = False
 
     def close():
         if words:
@@ -240,6 +243,7 @@ def _commands(tokens, keep_backslashes, depth):
         if kind == "separator":
             close()
             words, op, wrapper, skip, herestring, stdin = [], token, "", False, False, None
+            split = False
             continue
         if kind == "redirect":
             # The file descriptor written in front of a redirect is not a word.
@@ -252,7 +256,17 @@ def _commands(tokens, keep_backslashes, depth):
                 stdin = token
             skip, herestring = False, False
             continue
+        if split:
+            # env splits the string into a command and runs it with the words after it, as eval does.
+            words, split = ["eval", token], False
+            continue
         if not words:
+            if wrapper == "env" and (match := ENV_SPLIT.match(token)):
+                if match.group(1):
+                    words = ["eval", match.group(1)]
+                else:
+                    split = True
+                continue
             if token in WRAPPERS:
                 wrapper = token
                 continue
