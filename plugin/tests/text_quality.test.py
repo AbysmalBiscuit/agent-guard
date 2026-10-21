@@ -13,6 +13,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
@@ -146,9 +147,8 @@ class TheShippedRules(unittest.TestCase):
 class RuleValues(unittest.TestCase):
     def test_a_plain_value_is_the_swap_the_agent_is_told_to_make(self):
         module = load_check()
-        module.WARN["utilize"] = "use"
-
-        message, permission = module.judge("we utilize it")
+        with patch.dict(module.WARN, {"utilize": "use"}):
+            message, permission = module.judge("we utilize it")
 
         self.assertEqual(permission, "allow")
         self.assertIn('"utilize"', message)
@@ -156,9 +156,8 @@ class RuleValues(unittest.TestCase):
 
     def test_matching_ignores_case(self):
         module = load_check()
-        module.WARN["frobnicate"] = "poke"
-
-        message, permission = module.judge("Frobnicate it first")
+        with patch.dict(module.WARN, {"frobnicate": "poke"}):
+            message, permission = module.judge("Frobnicate it first")
 
         self.assertEqual(permission, "allow")
         self.assertIn("Write `poke` instead.", message)
@@ -166,17 +165,15 @@ class RuleValues(unittest.TestCase):
 
     def test_an_empty_value_says_to_delete(self):
         module = load_check()
-        module.WARN["very"] = ""
-
-        message, _ = module.judge("a very big deal")
+        with patch.dict(module.WARN, {"very": ""}):
+            message, _ = module.judge("a very big deal")
 
         self.assertIn("Delete it.", message)
 
     def test_an_explained_value_is_read_as_written(self):
         module = load_check()
-        module.WARN["utilize"] = module.Explain("Say what it does instead.")
-
-        message, _ = module.judge("we utilize it")
+        with patch.dict(module.WARN, {"utilize": module.Explain("Say what it does instead.")}):
+            message, _ = module.judge("we utilize it")
 
         self.assertIn("Say what it does instead.", message)
         self.assertNotIn("Write `", message)
