@@ -329,7 +329,7 @@ class PythonChangesetTests(unittest.TestCase):
             commit_all(root, "base")
             (src / "copy.tsx").write_text(TS_CLONE, encoding="utf-8")
             (src / "blank").write_text("", encoding="utf-8")
-            (src / "spaces.txt").write_text("   \n", encoding="utf-8")
+            (src / "spaces file.ts").write_text("   \n", encoding="utf-8")
             (root / "notes_copy.py").write_text(CLONE, encoding="utf-8")
             (root / "notes.txt").write_text("untracked\n", encoding="utf-8")
             enable(root, JSCPD_TS)
