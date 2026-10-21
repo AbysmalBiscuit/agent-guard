@@ -770,7 +770,10 @@ def find_file_length(changed, settings, cwd):
                 f"{length.block_message}"
             )
         elif limit.warn and count > limit.warn:
-            lines.append(f"  {rel}  {count} lines, past the warn limit of {limit.warn}. {length.warn_message}")
+            lines.append(
+                f"  {rel}  {count} lines, past the warn limit of {limit.warn}. "
+                f"{length.warn_message}"
+            )
     return "\n".join(lines[: settings.max_findings]), blocks
 
 
