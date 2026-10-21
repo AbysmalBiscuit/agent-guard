@@ -60,9 +60,7 @@ def find_duplication(changeset, slot):
         if any(settings.ignore_re.search(i.get("file", "")) for i in instances):
             continue
         groups.append(group)
-    return AnalysisResult(
-        format_fresh_groups(groups, changeset.seen_file, settings)
-    )
+    return AnalysisResult(format_fresh_groups(groups, changeset.seen_file, settings))
 
 
 def format_fresh_groups(groups, seen_file, settings):
