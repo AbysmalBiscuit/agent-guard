@@ -214,13 +214,14 @@ class FileLengthLimit:
     """One extension regex, or one path or glob, with its two levels."""
 
     def __init__(self, raw):
-        self.extensions = _str(raw.get("extensions"), "") if isinstance(raw, dict) else ""
-        self.pattern = _str(raw.get("pattern"), "") if isinstance(raw, dict) else ""
+        table = raw if isinstance(raw, dict) else {}
+        self.extensions = _str(table.get("extensions"), "")
+        self.pattern = _str(table.get("pattern"), "")
         self.ext_re = _compile(self.extensions) if self.extensions else None
-        self.warn = _int(raw.get("warn") if isinstance(raw, dict) else None, 0)
-        self.block = _int(raw.get("block_lines") if isinstance(raw, dict) else None, 0)
-        self.accept = _bool(raw.get("accept") if isinstance(raw, dict) else None, False)
-        self.lines = _int(raw.get("lines") if isinstance(raw, dict) else None, 0)
+        self.warn = _int(table.get("warn"), 0)
+        self.block = _int(table.get("block_lines"), 0)
+        self.accept = _bool(table.get("accept"), False)
+        self.lines = _int(table.get("lines"), 0)
 
 
 class FileLength:
