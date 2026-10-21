@@ -46,7 +46,7 @@ Grok Build reads `.grok-plugin/` ahead of `.claude-plugin/`, so it installs its 
 
 The hooks need `python3` 3.11 or newer on `PATH`, and use only the standard library. Codex on Windows calls `python` instead.
 
-Three tools are optional. Each feature stays silent when its tool is missing:
+These tools are optional. Each feature stays silent when its tool is missing:
 
 | Tool | Used for |
 |---|---|
@@ -204,7 +204,7 @@ lines = 4000
 | `accept` | `false` | `true` accepts the file at `lines` and fails only when it grows |
 | `lines` | unset | recorded size of an accepted file. An accept row without `lines`, or with `lines` at zero or below, is ignored, and `doctor` reports it as a config error |
 
-complexipy, lizard, vulture, pyscn and jscpd run at the versions in `plugin/mise.toml`. The audit runs the binary mise pins. A tree's own `.venv` supplies a tool when it has one and mise has no pin for it. Nothing is installed into the project. A missing mise, a missing pin, or a timeout leaves that tool silent. `doctor` lists which analyses are on, where each setting came from, each pin, and that silence.
+complexipy, lizard, vulture, pyscn and jscpd run at the versions in `plugin/mise.toml`. The audit runs the binary mise pins. A tree's own `.venv` supplies a tool ahead of the mise pin when it has one. Nothing is installed into the project. A missing mise, a missing pin, or a timeout leaves that tool silent. `doctor` lists which analyses are on, where each setting came from, each pin, and that silence.
 
 A clone group is reported when one of its instances sits on a line the branch added, and each fingerprint once per session. A cycle is reported when the base revision did not have it.
 
