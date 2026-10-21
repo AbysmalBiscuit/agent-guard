@@ -166,7 +166,7 @@ timeout = 20
 | `pyscn_extensions` | `\.py$` | file types pyscn reads |
 | `timeout` | `20` | seconds one analysis may run |
 
-File length lives under `[file_length]`. It is off until a tree sets `enabled`. Each `[[file_length.limits]]` row is one file type, selected by an extension regex, or one path or glob. A path row outranks a type row. A nearer `limits` list replaces a farther one. A file above `warn` warns. A file above `block_lines` blocks when the global `block` setting is on, and still reports when that setting is off. `accept` records a file at `lines`: the check fails only when that file grows past the recorded size.
+File length lives under `[file_length]`. It is off until a tree sets `enabled`. Each `[[file_length.limits]]` row is one file type, selected by an extension regex, or one path or glob. A path row outranks a type row. A nearer `limits` list replaces a farther one. A file above `warn_lines` warns. A file above `block_lines` blocks when the global `block` setting is on, and still reports when that setting is off. `accept` records a file at `lines`: the check fails only when that file grows past the recorded size.
 
 ```toml
 [file_length]
@@ -176,7 +176,7 @@ block_message = "Split this file by responsibility, and move tests into focused 
 
 [[file_length.limits]]
 extensions = '\.py$'
-warn = 500
+warn_lines = 500
 block_lines = 1000
 
 [[file_length.limits]]
@@ -188,12 +188,12 @@ lines = 4000
 | Setting | Default | Effect |
 |---|---|---|
 | `enabled` | `false` | `true` compares each changed file with its limit |
-| `warn_message` | Split this file by responsibility, and move tests into focused files. | message for a file above `warn` |
+| `warn_message` | Split this file by responsibility, and move tests into focused files. | message for a file above `warn_lines` |
 | `block_message` | Split this file by responsibility, and move tests into focused files. | message for a file above `block_lines`, and for an accepted file that grew |
 | `limits` | none | rows that name a file type, a path, or a glob. A nearer list replaces a farther one |
 | `extensions` | unset | extension regex that selects the files a type row covers |
 | `pattern` | unset | path or glob a row covers. A path row outranks a type row |
-| `warn` | unset | line count above which a file warns |
+| `warn_lines` | unset | line count above which a file warns |
 | `block_lines` | unset | line count above which a file blocks |
 | `accept` | `false` | `true` accepts the file at `lines` and fails only when it grows |
 | `lines` | unset | recorded size of an accepted file. An accept row without `lines`, or with `lines` at zero or below, is ignored, and `doctor` reports it as a config error |

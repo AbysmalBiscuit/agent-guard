@@ -148,7 +148,7 @@ extensions = '\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|pyi|rs|go|sh|bash|sql|toml|ya?
 # [[file_length.limits]]
 # extensions = '\.py$'
 
-# warn = 500
+# warn_lines = 500
 # block_lines = 1000
 
 # [[file_length.limits]]

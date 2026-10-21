@@ -746,15 +746,15 @@ def find_file_length(changed, settings, cwd):
                     f"  {rel}  {count} lines, accepted at {limit.lines}. {length.block_message}"
                 )
             continue
-        if limit.block and count > limit.block:
+        if limit.block_lines and count > limit.block_lines:
             blocks = True
             lines.append(
-                f"  {rel}  {count} lines, past the block limit of {limit.block}. "
+                f"  {rel}  {count} lines, past the block limit of {limit.block_lines}. "
                 f"{length.block_message}"
             )
-        elif limit.warn and count > limit.warn:
+        elif limit.warn_lines and count > limit.warn_lines:
             lines.append(
-                f"  {rel}  {count} lines, past the warn limit of {limit.warn}. "
+                f"  {rel}  {count} lines, past the warn limit of {limit.warn_lines}. "
                 f"{length.warn_message}"
             )
     return "\n".join(lines[: settings.max_findings]), blocks

@@ -115,7 +115,7 @@ enabled = true
 {messages}
 [[file_length.limits]]
 extensions = '\\.py$'
-warn = 4
+warn_lines = 4
 block_lines = 8
 {extra}"""
 
@@ -129,7 +129,7 @@ block = true
 [file_length]
 [[file_length.limits]]
 extensions = '\\.py$'
-warn = 4
+warn_lines = 4
 block_lines = 8
 """
 
@@ -143,7 +143,7 @@ block = true
 enabled = true
 [[file_length.limits]]
 extensions = '\\.(rs|go)$'
-warn = 4
+warn_lines = 4
 block_lines = 8
 """
 
@@ -314,7 +314,7 @@ class FileLengthTests(unittest.TestCase):
                     extra="""\
 [[file_length.limits]]
 pattern = "src/app.py"
-warn = 10
+warn_lines = 10
 block_lines = 20
 
 [[file_length.limits]]
@@ -435,7 +435,7 @@ warn_message = "farther warn"
 block_message = "farther block"
 [[file_length.limits]]
 extensions = '\\.py$'
-warn = 4
+warn_lines = 4
 block_lines = 8
 """,
                 encoding="utf-8",
@@ -447,7 +447,7 @@ block_lines = 8
 warn_message = "nearer warn"
 [[file_length.limits]]
 extensions = '\\.py$'
-warn = 20
+warn_lines = 20
 block_lines = 40
 """,
             )
@@ -506,12 +506,12 @@ block_lines = 40
                 + """
 [[file_length.limits]]
 extensions = ""
-warn = 1
+warn_lines = 1
 block_lines = 2
 
 [[file_length.limits]]
 pattern = "   "
-warn = 1
+warn_lines = 1
 block_lines = 2
 """,
             )
@@ -549,7 +549,7 @@ block = true
 enabled = true
 [[file_length.limits]]
 pattern = "**/app.rs"
-warn = 4
+warn_lines = 4
 block_lines = 8
 """,
             )
@@ -592,7 +592,7 @@ block = true
 enabled = true
 [[file_length.limits]]
 pattern = "src/**/x.rs"
-warn = 4
+warn_lines = 4
 block_lines = 8
 """,
             )
@@ -635,7 +635,7 @@ block = true
 enabled = true
 [[file_length.limits]]
 pattern = "vendor/**"
-warn = 4
+warn_lines = 4
 block_lines = 8
 """,
             )
@@ -674,7 +674,7 @@ block = true
 enabled = true
 [[file_length.limits]]
 pattern = "src/**"
-warn = 4
+warn_lines = 4
 block_lines = 8
 """,
             )

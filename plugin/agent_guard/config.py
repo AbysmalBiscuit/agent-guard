@@ -218,8 +218,8 @@ class FileLengthLimit:
         self.extensions = _str(table.get("extensions"), "")
         self.pattern = _str(table.get("pattern"), "")
         self.ext_re = _compile(self.extensions) if self.extensions else None
-        self.warn = _int(table.get("warn"), 0)
-        self.block = _int(table.get("block_lines"), 0)
+        self.warn_lines = _int(table.get("warn_lines"), 0)
+        self.block_lines = _int(table.get("block_lines"), 0)
         self.accept = _bool(table.get("accept"), False)
         self.lines = _int(table.get("lines"), 0)
 
