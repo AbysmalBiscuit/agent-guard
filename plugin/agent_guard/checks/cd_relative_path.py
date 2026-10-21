@@ -14,9 +14,9 @@ directory and is left alone.
 
 import os
 import re
-import shlex
 
 from ..contract import Decision, denied
+from ..shell_commands import read_commands
 
 # Commands that move the shell, PowerShell's spellings of it included.
 CD_NAMES = {"cd", "chdir", "set-location", "sl", "pushd", "push-location"}
@@ -106,44 +106,6 @@ PATH_OPTS = {"-path", "-literalpath", "-filepath"}
 # fd hands everything after these to a child command, so the operands stop
 # being paths and the shape is no longer mechanical.
 EXEC_FLAGS = {"-x", "--exec", "-X", "--exec-batch"}
-# Operators that end one command and begin the next. A newline does too, but
-# it never reaches the lexer: `commands` separates physical lines first.
-SEPARATORS = {"||", "&&", "|", "|&", ";", ";;", "&", "(", ")"}
-# Operators whose target is a stream rather than an operand to read.
-REDIRECTS = {">", ">>", ">|", ">&", "<", "<<", "<<<", "<&", "&>", "&>>"}
-FD_NUMBER = re.compile(r"^\d+$")
-ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*=")
-# Words that leave the real command word still ahead.
-KEYWORDS = {
-    "do",
-    "then",
-    "else",
-    "elif",
-    "if",
-    "while",
-    "until",
-    "done",
-    "fi",
-    "!",
-    "sudo",
-    "command",
-    "env",
-    "time",
-    "timeout",
-    "nice",
-    "stdbuf",
-    "nohup",
-}
-
-
-def command_name(word):
-    """The bare command word: no directory, no `.exe`, lowercased.
-
-    PowerShell matches command names without regard to case, and a name can
-    arrive with either separator now that a backslash survives lexing.
-    """
-    base = re.split(r"[\\/]", word)[-1].lower()
-    return base[:-4] if base.endswith(".exe") else base
 
 
 def rooted(path):
@@ -159,78 +121,36 @@ def rooted(path):
 
 
 def commands(script):
-    """Every command in the script, each a token list, quoting respected.
+    """Every command in the script, quoting respected.
 
-    A newline ends a command exactly as `;` does, but `whitespace_split` counts
-    it as whitespace, so lines have to be separated before lexing. Left joined,
-    a `cd` on its own line would absorb the next line's words and read them as
-    part of its target.
+    A backslash stays a path separator: posix escaping turns `C:\\Users\\Lev`
+    into `C:UsersLev` and hides the path.
     """
-    parsed = []
-    for line in script.splitlines():
-        parsed.extend(line_commands(line))
-    return parsed
-
-
-def line_commands(line):
-    """One physical line's commands.
-
-    Splitting the raw text on a regex cuts inside a quoted argument: an rg
-    pattern holding an alternation `|` breaks into fragments with unbalanced
-    quotes, and the fragment carrying the real path stops being parseable, so
-    the whole line reads as harmless.
-    """
-    lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    # Nothing here is executed, so a backslash is worth more as a path
-    # separator than as an escape: posix escaping turns `C:\Users\Lev` into
-    # `C:UsersLev` and hides the path from every test below.
-    lexer.escape = ""
-    parsed, current, redirected = [], [], False
-    try:
-        for token in lexer:
-            if redirected:
-                redirected = False
-                continue
-            if token in SEPARATORS:
-                parsed.append(current)
-                current = []
-            elif token in REDIRECTS:
-                # A redirect's target is not an operand, and the file
-                # descriptor written in front of it is not a word.
-                if current and FD_NUMBER.match(current[-1]):
-                    current.pop()
-                redirected = True
-            else:
-                current.append(token)
-    except ValueError:
-        pass  # an unbalanced quote ends the parse; keep what came before it
-    parsed.append(current)
-    return [tokens for tokens in parsed if tokens]
+    return read_commands(script, keep_backslashes=True)
 
 
 def leading_cd(parsed):
     """The directory a leading `cd` moves to, or None."""
     if len(parsed) < 2:
         return None
-    tokens = parsed[0]
-    if len(tokens) < 2 or command_name(tokens[0]) not in CD_NAMES:
+    first = parsed[0]
+    if not first.args or first.name not in CD_NAMES:
         return None
     # A path carrying an escaped space arrives as several tokens once escaping
     # is off, and rejoining them costs nothing when it was one word already.
-    args = [token for token in tokens[1:] if token != "--" and token.lower() not in PATH_OPTS]
+    args = [token for token in first.args if token != "--" and token.lower() not in PATH_OPTS]
     target = os.path.expanduser(" ".join(args))
     return target if rooted(target) else None
 
 
-def segment_operands(tokens, directory):
+def segment_operands(command, directory):
     """The relative paths one command would open, given the `cd` target."""
-    name = command_name(tokens[0])
+    name = command.name
     if name not in READERS:
         return []
 
     named, operands, skip, wants_path = [], [], False, False
-    for token in tokens[1:]:
+    for token in command.args:
         if skip:
             skip = False
             continue
@@ -274,18 +194,12 @@ def relative_operands(parsed, directory):
     `cd`: a `git` or a search buried later in a `&&` chain runs in the changed
     directory just the same.
     """
-    for tokens in parsed[1:]:
-        # A loop or conditional body puts the real command a few words in, and
-        # an env assignment does too.
-        while tokens and (tokens[0] in KEYWORDS or ASSIGNMENT.match(tokens[0])):
-            tokens = tokens[1:]
-        if not tokens:
-            continue
-        if command_name(tokens[0]) == "git":
+    for command in parsed[1:]:
+        if command.name == "git":
             return "git", []
-        hits = segment_operands(tokens, directory)
+        hits = segment_operands(command, directory)
         if hits:
-            return command_name(tokens[0]), hits
+            return command.name, hits
     return "", []
 
 
