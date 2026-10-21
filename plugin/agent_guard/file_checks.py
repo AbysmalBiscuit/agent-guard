@@ -11,9 +11,11 @@ from .config import sgconfig_for
 from .contract import (
     ASK_EXIT,
     SHELL_TOOLS,
+    SILENT,
+    advised,
+    asked,
     changed_lines,
-    emit,
-    emit_silent,
+    denied,
     git_base,
 )
 from .paths import MANDATORY_DIR, MANDATORY_TIMEOUT
@@ -92,9 +94,9 @@ def run_mandatory(payload, cwd):
     script can still be edited back into shape. Scope by tool, not a setting:
     nothing here is negotiable for the calls it does cover."""
     if not MANDATORY_DIR.is_dir():
-        return
+        return SILENT
     if (payload.get("tool_name") or "") not in SHELL_TOOLS:
-        return
+        return SILENT
     raw = json.dumps(payload, separators=(",", ":"))
     tool = payload.get("tool_name") or ""
 
@@ -125,9 +127,10 @@ def run_mandatory(payload, cwd):
             advice.append(out)
 
     if denials:
-        emit("PreToolUse", "\n\n".join(denials + advice), "\n\n".join(denials))
+        return denied("\n\n".join(denials + advice), "\n\n".join(denials))
     if advice:
-        emit("PreToolUse", "\n\n".join(advice))
+        return advised("\n\n".join(advice))
+    return SILENT
 
 
 def check_tool(payload, roots, settings, cwd):
@@ -150,7 +153,7 @@ def check_tool(payload, roots, settings, cwd):
     rather than their shebang, because the executable bit does not survive a
     clone onto Windows."""
     if not settings.tool_checks:
-        emit_silent()
+        return SILENT
     raw = json.dumps(payload, separators=(",", ":"))
     tool = payload.get("tool_name") or ""
 
@@ -183,19 +186,15 @@ def check_tool(payload, roots, settings, cwd):
 
     if denials:
         _state.log(1, "decision", tool=tool, outcome="deny", checks=len(denials))
-        emit(
-            "PreToolUse",
-            "\n\n".join(denials + asks + advice),
-            deny="\n\n".join(denials),
-        )
+        return denied("\n\n".join(denials + asks + advice), "\n\n".join(denials))
     if asks:
         _state.log(1, "decision", tool=tool, outcome="ask", checks=len(asks))
-        emit("PreToolUse", "\n\n".join(asks + advice), ask="\n\n".join(asks))
+        return asked("\n\n".join(asks + advice), "\n\n".join(asks))
     if advice:
         _state.log(1, "decision", tool=tool, outcome="advise", checks=len(advice))
-        emit("PreToolUse", "\n\n".join(advice))
+        return advised("\n\n".join(advice))
     _state.log(1, "decision", tool=tool, outcome="allow")
-    emit_silent()
+    return SILENT
 
 
 _FINDING_LINE = re.compile(r":(\d+)  \[")
@@ -336,7 +335,7 @@ def check_file(payload, roots, settings, cwd, layers):
         rules=",".join(sorted(_rules(errors + warnings + notes))) or None,
     )
     if not (errors or warnings or notes):
-        emit_silent()
+        return SILENT
 
     context = ""
     if errors or warnings:
@@ -359,4 +358,4 @@ def check_file(payload, roots, settings, cwd, layers):
             "if you agree; it is not a violation:\n\n"
         ) + "\n".join(notes)
 
-    emit("PostToolUse", context)
+    return advised(context)

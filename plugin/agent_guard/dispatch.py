@@ -1,4 +1,4 @@
-"""Dispatch one hook event from the payload on stdin."""
+"""One entry point that takes a hook event and returns a decision."""
 
 import json
 import sys
@@ -7,37 +7,24 @@ from pathlib import Path
 from . import _state
 from .changeset import check_changeset
 from .config import LAYERS, Settings, discover_roots, load_config
-from .contract import GROK_TOOL_NAMES
+from .contract import SILENT, Decision
 from .doctor import doctor
 from .file_checks import check_file, check_tool, run_mandatory
 from .paths import SCRIPTS_DIR
 from .process import run
 
 
-def main():
-    args = [arg for arg in sys.argv[1:] if arg not in ("--codex", "--grok")]
-    argv_event = args[0] if args else ""
-    if argv_event == "doctor":
-        doctor(Path.cwd())
+def decide(payload):
+    """The decision for one hook event.
 
-    raw = sys.stdin.read()
-    if not raw.strip():
-        sys.exit(0)
-    try:
-        payload = json.loads(raw)
-    except ValueError:
-        sys.exit(0)
+    `payload` is the event after an adapter has translated its tool names.
+    """
+    if not isinstance(payload, dict):
+        return SILENT
+    event = payload.get("hook_event_name") or ""
 
-    event = argv_event or payload.get("hook_event_name") or ""
     session = payload.get("session_id") or "nosession"
     agent_type = payload.get("agent_type") or payload.get("subagentType") or ""
-    if _state.GROK:
-        tool_name = payload.get("tool_name") or ""
-        payload["tool_name"] = GROK_TOOL_NAMES.get(tool_name, tool_name)
-        # Grok also fires Stop at session teardown, where it ignores the answer.
-        if event == "Stop" and payload.get("reason") != "end_turn":
-            sys.exit(0)
-
     cwd = Path.cwd()
     declared = payload.get("cwd") or ""
     if declared and Path(declared).is_dir():
@@ -62,14 +49,15 @@ def main():
             cwd=cwd,
             timeout=12,
         )
-        sys.exit(0)
+        return SILENT
 
     # Ahead of discovery and the config, so no root and no setting is between
     # this tier and the call it refuses. A config.toml that will not even parse
     # cannot take it out either.
-    if event == "PreToolUse":
-        _state.arm_watchdog(_state.deadline(6))
-        run_mandatory(payload, cwd)
+    mandatory = run_mandatory(payload, cwd) if event == "PreToolUse" else SILENT
+    # A mandatory finding ends the run. The call never reaches a later tier.
+    if mandatory.context or mandatory.permission != "allow":
+        return mandatory
 
     roots = discover_roots(cwd)
     cfg = load_config(roots)
@@ -85,24 +73,30 @@ def main():
     scoped = len(roots) > 1
     allowed = frozenset(LAYERS) if scoped else settings.always
     if not allowed:
-        sys.exit(0)
+        return mandatory
 
     if event == "PreToolUse":
-        # The watchdog is already armed by the mandatory tier above. A check that
-        # has not answered by then has nothing worth waiting for.
         if "tool_checks" not in allowed:
-            sys.exit(0)
-        check_tool(payload, roots, settings, cwd)
-    elif event == "PostToolUse":
+            return mandatory
+        checked = check_tool(payload, roots, settings, cwd)
+        if checked.permission != "allow" or checked.context:
+            return checked
+        return mandatory
+    if event == "PostToolUse":
         # One event drives two layers, so it carries the permitted set down
         # rather than deciding here.
         layers = allowed & frozenset(("rules", "checks"))
         if not layers:
-            sys.exit(0)
-        _state.arm_watchdog(_state.deadline(9))
-        check_file(payload, roots, settings, cwd, layers)
-    elif event in ("Stop", "SubagentStop"):
+            return SILENT
+        return check_file(payload, roots, settings, cwd, layers)
+    if event in ("Stop", "SubagentStop"):
         if "changeset" not in allowed:
-            sys.exit(0)
-        check_changeset(event, session, agent_type, roots, settings, cwd)
-    sys.exit(0)
+            return SILENT
+        return check_changeset(session, agent_type, roots, settings, cwd)
+    return SILENT
+
+
+def run_doctor(cwd):
+    """Print what a checkout resolves to. The process entry owns the exit."""
+    doctor(cwd)
+    return Decision()

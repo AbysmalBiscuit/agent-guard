@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from .config import JSCPD_MAX_SIZE, JSCPD_MIN_LINES, JSCPD_MIN_TOKENS, _int
-from .contract import changed_lines, emit, emit_silent, git_base
+from .contract import SILENT, advised, changed_lines, denied, git_base
 from .file_checks import run_changeset_checks
 from .paths import BARREL_OR_TEST, STATE_DIR, TEST_PATH
 from .process import (
@@ -785,11 +785,11 @@ def changeset_fingerprint(base, changed, cwd, globs):
     return digest.hexdigest()[:16]
 
 
-def check_changeset(event, session, agent_type, roots, settings, cwd):
+def check_changeset(session, agent_type, roots, settings, cwd):
     """Cross-file analysis on the changeset. Only findings the changeset
     introduced are reported; inherited debt is not this agent's to answer for."""
     if not have("git") or not succeeds(["git", "rev-parse", "--git-dir"], cwd=cwd):
-        emit_silent()
+        return SILENT
 
     base = git_base(settings, cwd)
     globs = source_globs(settings)
@@ -801,13 +801,13 @@ def check_changeset(event, session, agent_type, roots, settings, cwd):
     if not changed and not violations:
         # Nothing for the tools to read. Drop a note from an earlier Stop.
         clear_python_problem(cwd)
-        emit_silent()
+        return SILENT
 
     sdir = STATE_DIR / session
     try:
         sdir.mkdir(parents=True, exist_ok=True)
     except OSError:
-        emit_silent()
+        return SILENT
     seen_file = sdir / "seen-fingerprints"
     if not seen_file.exists():
         with contextlib.suppress(OSError):
@@ -823,7 +823,7 @@ def check_changeset(event, session, agent_type, roots, settings, cwd):
     last = sdir / "last-diff"
     try:
         if last.is_file() and last.read_text(encoding="utf-8").strip() == fingerprint:
-            emit_silent()
+            return SILENT
         last.write_text(fingerprint, encoding="utf-8")
     except OSError:
         pass
@@ -857,7 +857,7 @@ def check_changeset(event, session, agent_type, roots, settings, cwd):
             f"{who} introduced findings the tree asked this audit to report:\n\n{python}\n"
         )
     if not sections:
-        emit_silent()
+        return SILENT
     context = "\n".join(sections)
 
     blocks_file = sdir / "blocks"
@@ -870,5 +870,5 @@ def check_changeset(event, session, agent_type, roots, settings, cwd):
             if violations
             else "agent-guard: duplication introduced by this changeset is unresolved"
         )
-        emit(event, context, reason)
-    emit(event, context)
+        return denied(context, reason)
+    return advised(context)
