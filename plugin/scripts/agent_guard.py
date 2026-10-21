@@ -1540,9 +1540,7 @@ def changeset_fingerprint(base, changed, cwd, globs):
     report would be skipped. The diff still goes in, because a deletion moves it
     while leaving nothing on disk to read."""
     digest = hashlib.sha256()
-    digest.update(
-        run(["git", "diff", base, "--", *globs], cwd=cwd).encode("utf-8", "replace")
-    )
+    digest.update(run(["git", "diff", base, "--", *globs], cwd=cwd).encode("utf-8", "replace"))
     digest.update(run(["git", "diff", "--", *globs], cwd=cwd).encode("utf-8", "replace"))
     for rel in changed:
         digest.update(rel.encode("utf-8", "replace"))
@@ -1583,9 +1581,10 @@ def check_changeset(event, session, agent_type, roots, settings, cwd):
     # Skip re-running when the changeset has not moved since the last report.
     # Python tools run after this skip: a repeat of the same diff must not pay
     # for them again.
-    fingerprint = changeset_fingerprint(base, changed, cwd, globs) + hashlib.sha1(
-        violations.encode("utf-8", "replace"), usedforsecurity=False
-    ).hexdigest()
+    fingerprint = (
+        changeset_fingerprint(base, changed, cwd, globs)
+        + hashlib.sha1(violations.encode("utf-8", "replace"), usedforsecurity=False).hexdigest()
+    )
     last = sdir / "last-diff"
     try:
         if last.is_file() and last.read_text(encoding="utf-8").strip() == fingerprint:
@@ -1709,9 +1708,7 @@ def doctor(cwd):
                 ("length", "python_lizard_length", analysis.length),
                 ("arguments", "python_lizard_arguments", analysis.arguments),
             ):
-                print(
-                    f"      {label:<11}: {value}  from {settings.origins.get(key, 'default')}"
-                )
+                print(f"      {label:<11}: {value}  from {settings.origins.get(key, 'default')}")
         elif name == "vulture":
             print(
                 "      confidence : "
@@ -1723,9 +1720,7 @@ def doctor(cwd):
         print(f"  python tools : {problem}")
     elif any(analysis.enabled for analysis in settings.python.values()):
         missing = [
-            name
-            for name in PYTHON_ANALYSES
-            if settings.python[name].enabled and not have(name)
+            name for name in PYTHON_ANALYSES if settings.python[name].enabled and not have(name)
         ]
         if missing and not have("uvx"):
             print("  python tools : uv is not on PATH, so " + ", ".join(missing) + " stays silent")
