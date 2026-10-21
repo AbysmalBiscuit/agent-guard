@@ -1525,7 +1525,6 @@ def changed_files(base, cwd, globs):
     ignored trees such as node_modules out."""
     listings = (
         ["git", "diff", "--name-only", base, "--", *globs],
-        ["git", "diff", "--name-only", "--", *globs],
         ["git", "ls-files", "--others", "--exclude-standard", "--", *globs],
     )
     out, seen = [], set()
@@ -1546,7 +1545,6 @@ def changeset_fingerprint(base, changed, cwd, globs):
     while leaving nothing on disk to read."""
     digest = hashlib.sha256()
     digest.update(run(["git", "diff", base, "--", *globs], cwd=cwd).encode("utf-8", "replace"))
-    digest.update(run(["git", "diff", "--", *globs], cwd=cwd).encode("utf-8", "replace"))
     for rel in changed:
         digest.update(rel.encode("utf-8", "replace"))
         path = cwd / rel
