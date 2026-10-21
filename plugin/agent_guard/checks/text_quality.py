@@ -148,11 +148,11 @@ agent-guard: the call runs, but unslop flags this text. Reword it where the advi
 {findings}"""
 
 # Loudest first: a call tripping several tiers is judged by the first it trips.
-# The second field is the decision the tier returns.
+# The second field builds the decision the tier returns.
 TIERS = (
-    (REFUSE, "deny", REFUSE_MESSAGE),
-    (ASK, "ask", ASK_MESSAGE),
-    (WARN, "allow", WARN_MESSAGE),
+    (REFUSE, denied, REFUSE_MESSAGE),
+    (ASK, asked, ASK_MESSAGE),
+    (WARN, advised, WARN_MESSAGE),
 )
 
 
@@ -228,12 +228,13 @@ def report(text, rules):
 
 
 def judge(text):
-    """The message and permission of the loudest tier `text` trips."""
-    for rules, permission, message in TIERS:
+    """The decision of the loudest tier `text` trips, or silence."""
+    for rules, decide, message in TIERS:
         findings = report(text, rules)
         if findings:
-            return message.format(findings=findings), permission
-    return "", "allow"
+            body = message.format(findings=findings)
+            return decide(body, body)
+    return Decision()
 
 
 def check(payload):
@@ -247,11 +248,4 @@ def check(payload):
     )
     if not text:
         return Decision()
-    message, permission = judge(text)
-    if not message:
-        return Decision()
-    if permission == "deny":
-        return denied(message, message)
-    if permission == "ask":
-        return asked(message, message)
-    return advised(message)
+    return judge(text)

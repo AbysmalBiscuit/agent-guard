@@ -141,34 +141,34 @@ class TheShippedRules(unittest.TestCase):
 class RuleValues(unittest.TestCase):
     def test_a_plain_value_is_the_swap_the_agent_is_told_to_make(self):
         with patch.dict(check_module.WARN, {"utilize": "use"}):
-            message, permission = check_module.judge("we utilize it")
+            verdict = check_module.judge("we utilize it")
 
-        self.assertEqual(permission, "allow")
-        self.assertIn('"utilize"', message)
-        self.assertIn("Write `use` instead.", message)
+        self.assertEqual(verdict.permission, "allow")
+        self.assertIn('"utilize"', verdict.context)
+        self.assertIn("Write `use` instead.", verdict.context)
 
     def test_matching_ignores_case(self):
         with patch.dict(check_module.WARN, {"frobnicate": "poke"}):
-            message, permission = check_module.judge("Frobnicate it first")
+            verdict = check_module.judge("Frobnicate it first")
 
-        self.assertEqual(permission, "allow")
-        self.assertIn("Write `poke` instead.", message)
-        self.assertIn("Frobnicate it first", message)
+        self.assertEqual(verdict.permission, "allow")
+        self.assertIn("Write `poke` instead.", verdict.context)
+        self.assertIn("Frobnicate it first", verdict.context)
 
     def test_an_empty_value_says_to_delete(self):
         with patch.dict(check_module.WARN, {"very": ""}):
-            message, _ = check_module.judge("a very big deal")
+            verdict = check_module.judge("a very big deal")
 
-        self.assertIn("Delete it.", message)
+        self.assertIn("Delete it.", verdict.context)
 
     def test_an_explained_value_is_read_as_written(self):
         with patch.dict(
             check_module.WARN, {"utilize": check_module.Explain("Say what it does instead.")}
         ):
-            message, _ = check_module.judge("we utilize it")
+            verdict = check_module.judge("we utilize it")
 
-        self.assertIn("Say what it does instead.", message)
-        self.assertNotIn("Write `", message)
+        self.assertIn("Say what it does instead.", verdict.context)
+        self.assertNotIn("Write `", verdict.context)
 
 
 class ThroughTheHook(unittest.TestCase):

@@ -50,8 +50,8 @@ def asked(context, reason):
     return Decision("ask", context, reason)
 
 
-def advised(context):
-    return Decision("allow", context)
+def advised(context, reason=""):
+    return Decision("allow", context, reason)
 
 
 def git_base(settings, cwd):
