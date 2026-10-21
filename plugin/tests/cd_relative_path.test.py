@@ -19,12 +19,13 @@ import io
 import json
 import ntpath
 import os
-import pathlib
 import random
 import sys
 import types
 
-CHECK = pathlib.Path(__file__).parent.parent / "tool_checks" / "cd_relative_path.py"
+from hook_support import PLUGIN_ROOT
+
+CHECK = PLUGIN_ROOT / "tool_checks" / "cd_relative_path.py"
 SOURCE = CHECK.read_text(encoding="utf-8")
 
 POSIX_DIR = "/home/lev/Git/lev/devkit"

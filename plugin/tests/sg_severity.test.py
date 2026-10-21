@@ -9,11 +9,10 @@ reports, so it has to land in the default tier rather than the quietest one.
 import json
 import pathlib
 import shutil
-import subprocess
 import sys
 import tempfile
 
-GUARD = pathlib.Path(__file__).parent.parent / "agent_guard"
+from hook_support import run_hook
 
 RULE = """id: {name}
 language: typescript
@@ -49,9 +48,8 @@ def report():
                 "cwd": base,
             }
         )
-        done = subprocess.run(
-            [sys.executable, str(GUARD)],
-            input=payload,
+        done = run_hook(
+            payload,
             capture_output=True,
             text=True,
             timeout=60,

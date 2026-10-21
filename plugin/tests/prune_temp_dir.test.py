@@ -19,7 +19,9 @@ import tempfile
 import time
 import types
 
-CHECK = pathlib.Path(__file__).parent.parent / "tool_checks" / "prune_temp_dir.py"
+from hook_support import PLUGIN_ROOT
+
+CHECK = PLUGIN_ROOT / "tool_checks" / "prune_temp_dir.py"
 DAY = 86400
 
 

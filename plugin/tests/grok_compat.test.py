@@ -5,12 +5,11 @@ import json
 import os
 import pathlib
 import subprocess
-import sys
 import tempfile
 import unittest
 
-PLUGIN_ROOT = pathlib.Path(__file__).parent.parent
-SCRIPT = PLUGIN_ROOT / "agent_guard"
+from hook_support import run_hook as invoke_hook
+
 EN_DASH = chr(0x2013)
 
 
@@ -42,9 +41,9 @@ def grok_payload(event, cwd, **fields):
 def run_hook(payload, cwd):
     env = os.environ.copy()
     env["XDG_STATE_HOME"] = str(pathlib.Path(cwd) / "state")
-    return subprocess.run(
-        [sys.executable, str(SCRIPT), "--grok"],
-        input=json.dumps(payload),
+    return invoke_hook(
+        json.dumps(payload),
+        flag=("--grok",),
         capture_output=True,
         text=True,
         cwd=cwd,

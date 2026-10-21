@@ -5,12 +5,10 @@ import json
 import os
 import pathlib
 import subprocess
-import sys
 import tempfile
 import unittest
 
-PLUGIN_ROOT = pathlib.Path(__file__).parent.parent
-SCRIPT = PLUGIN_ROOT / "agent_guard"
+from hook_support import run_hook
 
 
 class CodexCompatibilityTests(unittest.TestCase):
@@ -41,9 +39,9 @@ class CodexCompatibilityTests(unittest.TestCase):
                 "model": "gpt-test",
             }
 
-            result = subprocess.run(
-                [sys.executable, str(SCRIPT), "--codex"],
-                input=json.dumps(payload),
+            result = run_hook(
+                json.dumps(payload),
+                flag=("--codex",),
                 capture_output=True,
                 text=True,
                 cwd=root,
@@ -119,9 +117,9 @@ class CodexCompatibilityTests(unittest.TestCase):
                 )
             env = os.environ.copy()
             env["XDG_STATE_HOME"] = str(root / "state")
-            result = subprocess.run(
-                [sys.executable, str(SCRIPT), "--codex"],
-                input=json.dumps(payload),
+            result = run_hook(
+                json.dumps(payload),
+                flag=("--codex",),
                 capture_output=True,
                 text=True,
                 cwd=root,

@@ -79,4 +79,4 @@ ignore = [
 
 [tool.pyrefly]
 project-includes = ["plugin/**/*.py"]
-search-path = ["plugin"]
+search-path = ["plugin", "plugin/tests"]

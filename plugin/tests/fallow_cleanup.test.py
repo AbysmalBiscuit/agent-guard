@@ -5,12 +5,11 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parent.parent / "agent_guard"
+from hook_support import run_hook
 
 
 @unittest.skipUnless(shutil.which("fallow"), "requires fallow with audit-cache remove")
@@ -81,15 +80,15 @@ class FallowCleanupTests(unittest.TestCase):
                     caches.extend(created)
 
                 for _ in range(2):
-                    result = subprocess.run(
-                        [sys.executable, str(SCRIPT), *(["--codex"] if codex else [])],
-                        input=json.dumps(
+                    result = run_hook(
+                        json.dumps(
                             {
                                 "hook_event_name": "SessionEnd",
                                 "session_id": "cleanup-test",
                                 "cwd": str(projects[0]),
                             }
                         ),
+                        flag=("--codex",) if codex else (),
                         capture_output=True,
                         text=True,
                         env=env,

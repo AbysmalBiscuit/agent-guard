@@ -9,7 +9,9 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "shell_calls.py"
+from hook_support import PLUGIN_ROOT
+
+SCRIPT = PLUGIN_ROOT / "scripts" / "shell_calls.py"
 
 
 class ShellCallsTests(unittest.TestCase):

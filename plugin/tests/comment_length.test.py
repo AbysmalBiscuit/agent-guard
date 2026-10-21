@@ -10,13 +10,13 @@ agent and one that a note arrives under a heading that does not call it one.
 import json
 import os
 import pathlib
-import subprocess
 import sys
 import tempfile
 import types
 
-CHECK = pathlib.Path(__file__).parent.parent / "checks" / "comment_length.py"
-GUARD = pathlib.Path(__file__).parent.parent / "agent_guard"
+from hook_support import PLUGIN_ROOT, run_hook
+
+CHECK = PLUGIN_ROOT / "checks" / "comment_length.py"
 
 for _key in [k for k in os.environ if k.startswith("AGENT_GUARD_")]:
     del os.environ[_key]
@@ -51,9 +51,8 @@ def hook(target, base):
             "cwd": base,
         }
     )
-    done = subprocess.run(
-        [sys.executable, str(GUARD)],
-        input=payload,
+    done = run_hook(
+        payload,
         capture_output=True,
         text=True,
         timeout=60,

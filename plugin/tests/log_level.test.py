@@ -8,12 +8,10 @@ invoke line and then exits because no root asked for the changeset layer.
 import json
 import os
 import pathlib
-import subprocess
-import sys
 import tempfile
 import unittest
 
-SCRIPT = pathlib.Path(__file__).parent.parent / "agent_guard"
+from hook_support import run_hook
 
 
 class LogLevelTests(unittest.TestCase):
@@ -67,9 +65,8 @@ class LogLevelTests(unittest.TestCase):
                 "cwd": str(root),
                 "hook_event_name": "Stop",
             }
-            result = subprocess.run(
-                [sys.executable, str(SCRIPT)],
-                input=json.dumps(payload),
+            result = run_hook(
+                json.dumps(payload),
                 capture_output=True,
                 text=True,
                 cwd=root,

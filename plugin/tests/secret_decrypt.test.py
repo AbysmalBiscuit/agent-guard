@@ -5,11 +5,12 @@ Held here rather than beside the check, because mandatory/ globs every *.py
 in it and would run this file as a check on each Bash call."""
 
 import importlib.util
-import pathlib
 import sys
 
+from hook_support import PLUGIN_ROOT
+
 spec = importlib.util.spec_from_file_location(
-    "hook", pathlib.Path(__file__).parent.parent / "mandatory" / "secret_decrypt.py"
+    "hook", PLUGIN_ROOT / "mandatory" / "secret_decrypt.py"
 )
 assert spec is not None
 assert spec.loader is not None

@@ -9,7 +9,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-CHECK = Path(__file__).resolve().parents[1] / "tool_checks" / "shell_conventions.py"
+from hook_support import PLUGIN_ROOT
+
+CHECK = PLUGIN_ROOT / "tool_checks" / "shell_conventions.py"
 
 
 class ShellConventionsTests(unittest.TestCase):

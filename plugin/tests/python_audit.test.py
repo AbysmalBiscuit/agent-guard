@@ -5,13 +5,12 @@ import json
 import os
 import pathlib
 import subprocess
-import sys
 import tempfile
 import textwrap
 import unittest
 
-PLUGIN = pathlib.Path(__file__).parent.parent
-SCRIPT = PLUGIN / "agent_guard"
+from hook_support import PLUGIN_ROOT as PLUGIN
+from hook_support import run_hook
 
 NOISY = textwrap.dedent(
     """\
@@ -190,8 +189,9 @@ def hook_env(project, checkout=None, env_extra=None, config_dir=None, state_home
 def doctor(project, checkout, env_extra=None, state_home=None):
     """Stdout of `agent_guard doctor` inside a tree that opted in."""
     env = hook_env(project, checkout, env_extra, state_home=state_home)
-    result = subprocess.run(
-        [sys.executable, str(SCRIPT), "doctor"],
+    result = run_hook(
+        None,
+        flag=("doctor",),
         capture_output=True,
         text=True,
         cwd=project,
@@ -213,9 +213,8 @@ def stop(project, checkout=None, env_extra=None, config_dir=None, state_home=Non
         "hook_event_name": "Stop",
         "reason": "end_turn",
     }
-    result = subprocess.run(
-        [sys.executable, str(SCRIPT)],
-        input=json.dumps(payload),
+    result = run_hook(
+        json.dumps(payload),
         capture_output=True,
         text=True,
         cwd=project,

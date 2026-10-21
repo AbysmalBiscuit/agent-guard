@@ -6,13 +6,12 @@ import os
 import pathlib
 import shutil
 import subprocess
-import sys
 import tempfile
 import textwrap
 import unittest
 
-SCRIPT = pathlib.Path(__file__).parent.parent / "agent_guard"
-PLUGIN = pathlib.Path(__file__).parent.parent
+from hook_support import PLUGIN_ROOT as PLUGIN
+from hook_support import run_hook
 
 CLONE = textwrap.dedent(
     """\
@@ -88,9 +87,8 @@ def stop_hook(root, session="test-session", extra_env=None, timeout=90, state_ho
         "cwd": str(root),
         "hook_event_name": "Stop",
     }
-    return subprocess.run(
-        [sys.executable, str(SCRIPT)],
-        input=json.dumps(payload),
+    return run_hook(
+        json.dumps(payload),
         capture_output=True,
         text=True,
         cwd=root,
@@ -247,8 +245,9 @@ class PythonChangesetTests(unittest.TestCase):
             (root / "bin" / "git").symlink_to(git)
             bare = {"PATH": str(root / "bin")}
             hook = stop_hook(root, session="bare", extra_env=bare)
-            doctor = subprocess.run(
-                [sys.executable, str(SCRIPT), "doctor"],
+            doctor = run_hook(
+                None,
+                flag=("doctor",),
                 capture_output=True,
                 text=True,
                 cwd=root,
@@ -306,8 +305,9 @@ class PythonChangesetTests(unittest.TestCase):
                 ),
             )
             hook = stop_hook(root, session="timeout", extra_env={"PATH": str(bindir)}, timeout=20)
-            doctor = subprocess.run(
-                [sys.executable, str(SCRIPT), "doctor"],
+            doctor = run_hook(
+                None,
+                flag=("doctor",),
                 capture_output=True,
                 text=True,
                 cwd=root,
