@@ -263,12 +263,6 @@ def _selected(changed, analysis, settings, cwd):
     return selected
 
 
-def _run_python_tool(cmd, timeout, cwd, name):
-    """Stdout of one analysis tool. A timeout or a failed start is recorded for
-    doctor and returns empty, so the audit stays silent."""
-    return run_external(name, cmd, timeout, cwd)
-
-
 def find_complexipy(changed, analysis, settings, cwd, base, timeout, _seen_file):
     """Cognitive complexity the changeset introduced, above the tree's threshold."""
     files = _selected(changed, analysis, settings, cwd)
@@ -282,7 +276,8 @@ def find_complexipy(changed, analysis, settings, cwd, base, timeout, _seen_file)
     except OSError:
         return ""
     with out_dir:
-        _run_python_tool(
+        run_external(
+            "complexipy",
             [
                 *cmd,
                 *files,
@@ -299,9 +294,8 @@ def find_complexipy(changed, analysis, settings, cwd, base, timeout, _seen_file)
                 "--cache-dir",
                 str(STATE_DIR / "complexipy-cache"),
             ],
-            timeout=timeout,
-            cwd=cwd,
-            name="complexipy",
+            timeout,
+            cwd,
         )
         report = Path(out_dir.name) / "complexipy-results.json"
         # complexipy writes the report to a file and may print nothing, so an
@@ -345,7 +339,8 @@ def find_lizard(changed, analysis, settings, cwd, base, timeout, _seen_file):
     # A missing whitelist file makes lizard print nothing, so pass one only when it exists.
     whitelist = cwd / analysis.baseline
     baseline_args = ["-W", str(whitelist)] if whitelist.is_file() else []
-    raw = _run_python_tool(
+    raw = run_external(
+        "lizard",
         [
             *cmd,
             "-C",
@@ -358,9 +353,8 @@ def find_lizard(changed, analysis, settings, cwd, base, timeout, _seen_file):
             *baseline_args,
             *files,
         ],
-        timeout=timeout,
-        cwd=cwd,
-        name="lizard",
+        timeout,
+        cwd,
     )
     lines = []
     for match in _LIZARD_WARN.finditer(raw):
@@ -405,11 +399,11 @@ def find_vulture(changed, analysis, settings, cwd, base, timeout, _seen_file):
         return ""
     whitelist = cwd / analysis.baseline
     paths = [*files, str(whitelist)] if whitelist.is_file() else files
-    raw = _run_python_tool(
+    raw = run_external(
+        "vulture",
         [*cmd, *paths, "--min-confidence", str(analysis.min_confidence)],
-        timeout=timeout,
-        cwd=cwd,
-        name="vulture",
+        timeout,
+        cwd,
     )
     # An import outranks a function, which outranks a name the file does use.
     rank = {"import": 0, "function": 1, "class": 1, "method": 1, "variable": 2, "attribute": 3}
@@ -532,7 +526,7 @@ def find_jscpd(changed, analysis, settings, cwd, base, timeout, seen_file):
     ]
     # --format python selects the language, so the scan points at the tree
     # root instead of putting every tracked file on argv.
-    _run_python_tool(argv, timeout=timeout, cwd=cwd, name="jscpd")
+    run_external("jscpd", argv, timeout, cwd)
     try:
         data = json.loads(report.read_text(encoding="utf-8")) if report.is_file() else None
     except (OSError, ValueError):
@@ -629,11 +623,11 @@ def find_pyscn(changed, analysis, settings, cwd, base, timeout, _seen_file):
     if cmd is None:
         return ""
     started = time.monotonic()
-    current_raw = _run_python_tool(
+    current_raw = run_external(
+        "pyscn",
         [*cmd, "analyze", "--select", "deps", "--json", "--output", "-", "."],
-        timeout=timeout,
-        cwd=cwd,
-        name="pyscn",
+        timeout,
+        cwd,
     )
     current = cycle_keys(current_raw, cwd)
     if not current:
@@ -660,11 +654,11 @@ def find_pyscn(changed, analysis, settings, cwd, base, timeout, _seen_file):
                 cwd,
             )
             return ""
-        base_raw = _run_python_tool(
+        base_raw = run_external(
+            "pyscn",
             [*cmd, "analyze", "--select", "deps", "--json", "--output", "-", "."],
-            timeout=max(deadline - time.monotonic(), 1),
-            cwd=dest,
-            name="pyscn",
+            max(deadline - time.monotonic(), 1),
+            dest,
         )
     finally:
         shutil.rmtree(parent, ignore_errors=True)
@@ -691,6 +685,9 @@ def find_python(changed, settings, cwd, base, budget, seen_file=None):
         "jscpd": find_jscpd,
         "pyscn": find_pyscn,
     }
+    missing = [tool.name for tool in EXTERNAL_TOOLS if tool.name not in readers]
+    if missing:
+        raise RuntimeError(f"no reader for {', '.join(missing)}")
     clear_python_problem(cwd)
     sections = []
     started = time.monotonic()

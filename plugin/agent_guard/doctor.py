@@ -4,7 +4,7 @@ import shutil
 
 from . import _state
 from .config import Settings, discover_roots, load_config, sgconfig_for
-from .external import missing_launcher_note
+from .external import EXTERNAL_TOOLS, missing_launcher_note
 from .paths import CONFIG_NAME, MANDATORY_DIR
 from .process import have, python_tool_problem
 
@@ -58,7 +58,9 @@ def doctor(cwd):
     if not have("rg"):
         print("  rg missing       -> over-extraction check skipped")
     print("  python analyses:")
-    for name, analysis in settings.python.items():
+    for tool in EXTERNAL_TOOLS:
+        name = tool.name
+        analysis = settings.python[name]
         state = "on" if analysis.enabled else "off"
         origin = analysis.origin or "default"
         print(f"    {name:<12} {state}  from {origin}")
@@ -89,7 +91,7 @@ def doctor(cwd):
     if problem:
         print(f"  python tools : {problem}")
     else:
-        enabled = {name for name, analysis in settings.python.items() if analysis.enabled}
+        enabled = {tool.name for tool in EXTERNAL_TOOLS if settings.python[tool.name].enabled}
         for note in missing_launcher_note(enabled, cwd):
             print(f"  python tools : {note}")
     if settings.scope == "diff":

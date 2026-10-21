@@ -9,7 +9,9 @@ from .process import record_python_problem
 
 
 class Launcher:
-    """How one runner starts a pinned tool. `own_venv` is the tree's copy."""
+    """How one runner starts a pinned tool.
+
+    `own_venv` lets a tree's `.venv/bin/<tool>` run before the launcher."""
 
     def __init__(self, name, label, argv, own_venv=False):
         self.name = name
@@ -34,20 +36,25 @@ BUNX = Launcher("bunx", "bunx", _bunx_argv)
 
 
 class ExternalTool:
-    """One tool the audit launches."""
+    """One tool the audit launches.
 
-    def __init__(self, name, version, launcher):
+    `extensions` and `baseline` are the defaults a tree keeps until it names
+    its own."""
+
+    def __init__(self, name, version, launcher, extensions, baseline=""):
         self.name = name
         self.version = version
         self.launcher = launcher
+        self.extensions = extensions
+        self.baseline = baseline
 
 
 EXTERNAL_TOOLS = (
-    ExternalTool("complexipy", "8.0.1", UVX),
-    ExternalTool("lizard", "1.24.1", UVX),
-    ExternalTool("vulture", "2.16", UVX),
-    ExternalTool("jscpd", "5.4.2", BUNX),
-    ExternalTool("pyscn", "1.32.5", UVX),
+    ExternalTool("complexipy", "8.0.1", UVX, r"\.py$", "complexipy-snapshot.json"),
+    ExternalTool("lizard", "1.24.1", UVX, r"\.(py|ts|tsx)$", "whitelizard.txt"),
+    ExternalTool("vulture", "2.16", UVX, r"\.py$", "vulture-whitelist.py"),
+    ExternalTool("jscpd", "5.4.2", BUNX, r"\.py$"),
+    ExternalTool("pyscn", "1.32.5", UVX, r"\.py$"),
 )
 
 _BY_NAME = {tool.name: tool for tool in EXTERNAL_TOOLS}
@@ -74,6 +81,17 @@ def _launcher_path(tool):
     return shutil.which(tool.launcher.name)
 
 
+def _own_venv(tool, cwd):
+    """The tree's `.venv/bin/<tool>` when that launcher prefers it and the
+    file can run. Otherwise None."""
+    if not tool.launcher.own_venv:
+        return None
+    own = Path(cwd) / ".venv" / "bin" / tool.name
+    if own.is_file() and os.access(own, os.X_OK):
+        return own
+    return None
+
+
 def tool_argv(name, cwd):
     """The argv that starts one tool, or None when its launcher cannot start.
 
@@ -81,10 +99,9 @@ def tool_argv(name, cwd):
     stays silent."""
     tool = external_tool(name)
     launcher = tool.launcher
-    if launcher.own_venv:
-        own = Path(cwd) / ".venv" / "bin" / name
-        if own.is_file() and os.access(own, os.X_OK):
-            return [str(own)]
+    own = _own_venv(tool, cwd)
+    if own is not None:
+        return [str(own)]
     binary = _launcher_path(tool)
     if binary is None:
         record_python_problem(
@@ -133,19 +150,19 @@ def missing_launcher_note(enabled, cwd):
         launcher = tool.launcher
         if tool.name not in enabled or launcher.name in seen:
             continue
-        if launcher.own_venv:
-            own = Path(cwd) / ".venv" / "bin" / tool.name
-            if own.is_file() and os.access(own, os.X_OK):
-                continue
-        if _launcher_override(launcher) is None and shutil.which(tool.name):
+        if _own_venv(tool, cwd) is not None:
             continue
         if _launcher_path(tool) is not None:
             continue
         names = ", ".join(
             other.name
             for other in EXTERNAL_TOOLS
-            if other.launcher.name == launcher.name and other.name in enabled
+            if other.launcher.name == launcher.name
+            and other.name in enabled
+            and _own_venv(other, cwd) is None
         )
+        if not names:
+            continue
         lines.append(f"{launcher.label} is not on PATH, so {names} stays silent")
         seen.add(launcher.name)
     return lines
