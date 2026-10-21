@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agent_guard.shell_commands import read_commands
+from agent_guard.shell_commands import read_commands, vouches_for
 
 
 def names(command, **options):
@@ -76,6 +76,20 @@ class ReadCommandsTests(unittest.TestCase):
         command = 'rg -n foo; grep -r "unterminated'
         self.assertEqual(names(command), [("rg", ("-n", "foo")), ("grep", ("-r",))])
         self.assertEqual(names(command, partial=False), [])
+
+    def test_the_reader_vouches_only_for_quoting_it_models(self):
+        cases = {
+            'rg -n "a|b" file': True,
+            "bash <<< 'rg -n foo'": True,
+            'rg -n "unterminated': False,
+            "echo $'\\''; rg -n foo": False,
+            "x=`rg -n foo`": False,
+            "ls \\\n&& rg -n foo": False,
+            "bash <<EOF\nrg -n foo\nEOF": False,
+        }
+        for command, expected in cases.items():
+            with self.subTest(command=command):
+                self.assertEqual(vouches_for(command), expected)
 
     def test_blank_input_returns_nothing(self):
         for command in ("", "   ", "   \n  "):

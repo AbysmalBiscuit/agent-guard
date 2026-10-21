@@ -28,6 +28,12 @@ MUST_BLOCK = [
     "C:\\tools\\age.exe -d f",
     "echo $(age -d f)",
     "find . | xargs -0 age -d",
+    # Quoting the reader does not model, and a line it cannot parse, fail closed.
+    "echo $'\\''; age -d f",
+    "x=`age -d f`",
+    "ls \\\n&& age -d f",
+    "bash <<EOF\nage -d f\nEOF",
+    'echo "x; age -d f',
     "chezmoi apply",
     "chezmoi apply --dry-run",
     "chezmoi update",
@@ -63,6 +69,11 @@ MUST_PASS = [
     "grep -r 'sops' .",
     "echo 'age' >> notes.txt",
     "xargs rg age",
+    # The name in quoted text, a script file, or a redirect target runs nothing.
+    'git commit -m "fix; age handling"',
+    "sudo 'age -d f'",
+    "bash age",
+    "echo hi > age",
 ]
 
 failures = 0

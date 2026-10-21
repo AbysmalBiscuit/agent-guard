@@ -13,6 +13,7 @@ from dataclasses import dataclass
 PUNCTUATION = "();<>|&\n"
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*=")
 DURATION = re.compile(r"^\d+[smhd]?$")
+UNMODELLED = re.compile(r"\$'|`|\\\n|(?<!<)<<(?!<)")
 # A short-option cluster that carries `-c`, such as `-c`, `-lc` or `-ec`.
 SHELL_SCRIPT_FLAG = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")
 # Words that leave the real command word still ahead.
@@ -111,6 +112,16 @@ def read_commands(script, keep_backslashes=False, partial=True, depth=0):
     if not closed and not partial:
         return []
     return _commands(tokens, keep_backslashes, depth)
+
+
+def vouches_for(script, keep_backslashes=False):
+    """True when every quote closes and the script holds no quoting the reader skips.
+
+    The reader does not read `$'...'` quotes, backticks, line continuations or
+    heredoc bodies the way bash does, so a command can hide in them.
+    """
+    _, closed = _tokens(script, keep_backslashes)
+    return closed and not UNMODELLED.search(script)
 
 
 class _Source(io.StringIO):

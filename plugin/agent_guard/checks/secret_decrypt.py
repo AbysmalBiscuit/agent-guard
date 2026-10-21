@@ -19,7 +19,7 @@ Not covered: a binary reached through a shell variable or renamed on disk.
 import re
 
 from ..contract import Decision, denied
-from ..shell_commands import read_commands
+from ..shell_commands import read_commands, vouches_for
 
 DECRYPT_BINARIES = {
     "age",
@@ -62,6 +62,8 @@ SECRET_PATH = re.compile(
 
 # Every word of the line, redirect targets included, for the identity-file scan.
 TOKEN = re.compile(r"'[^']*'|\"[^\"]*\"|[^\s;|&()<>]+")
+# Quote marks and backticks, each read as a command boundary in the fallback.
+QUOTING = re.compile(r"\$?'|\"|`")
 
 
 def unquote(token):
@@ -91,7 +93,12 @@ def find_violation(command):
             return f"{bare} is an age identity file"
 
     # A backslash stays a path separator, so `C:\tools\age.exe` keeps its name.
-    for item in read_commands(command, keep_backslashes=True):
+    items = read_commands(command, keep_backslashes=True)
+    if not vouches_for(command, keep_backslashes=True):
+        # Fail closed: read the line again with every quote removed, so a
+        # command hidden by quoting the reader misreads still shows.
+        items += read_commands(QUOTING.sub(";", command), keep_backslashes=True)
+    for item in items:
         reason = command_violation(item)
         if reason is not None:
             return reason
