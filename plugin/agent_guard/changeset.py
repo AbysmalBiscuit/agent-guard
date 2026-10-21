@@ -60,29 +60,32 @@ def find_duplication(changeset, slot):
         if any(settings.ignore_re.search(i.get("file", "")) for i in instances):
             continue
         groups.append(group)
-    return AnalysisResult(format_fresh_groups(groups, changeset.seen_file, settings))
+    return AnalysisResult(
+        format_fresh_groups(groups, changeset.seen_file, settings, changeset.remember)
+    )
 
 
-def format_fresh_groups(groups, seen_file, settings):
+def format_fresh_groups(groups, seen_file, settings, remember=True):
     """The clone-report shape, shared by fallow and the Python analysis.
 
     A fingerprint already written this session stays out, so each clone group
-    is reported once."""
-    if not groups or seen_file is None:
+    is reported once. A hand run sets `remember` false and reports every group."""
+    if not groups or (remember and seen_file is None):
         return ""
     try:
-        seen = set(seen_file.read_text(encoding="utf-8").split())
+        seen = set(seen_file.read_text(encoding="utf-8").split()) if remember else set()
     except OSError:
         seen = set()
     fresh = [g for g in groups if g.get("fingerprint") not in seen]
     if not fresh:
         return ""
-    try:
-        with seen_file.open("a", encoding="utf-8") as fh:
-            for g in fresh:
-                fh.write(f"{g.get('fingerprint')}\n")
-    except OSError:
-        pass
+    if remember:
+        try:
+            with seen_file.open("a", encoding="utf-8") as fh:
+                for g in fresh:
+                    fh.write(f"{g.get('fingerprint')}\n")
+        except OSError:
+            pass
 
     lines = []
     for group in fresh[: settings.max_findings]:
@@ -107,11 +110,12 @@ def find_over_extraction(changeset, slot):
     settings = changeset.settings
     cwd = changeset.cwd
     seen_file = changeset.seen_file
+    remember = changeset.remember
     roots = changeset.roots
     if not (settings.test_only or settings.single_caller) or not have("ast-grep"):
         return AnalysisResult()
     try:
-        seen = set(seen_file.read_text(encoding="utf-8").split())
+        seen = set(seen_file.read_text(encoding="utf-8").split()) if remember else set()
     except OSError:
         seen = set()
 
@@ -188,11 +192,12 @@ def find_over_extraction(changeset, slot):
                 )
             else:
                 continue
-            try:
-                with seen_file.open("a", encoding="utf-8") as fh:
-                    fh.write(f"{rel}:{name}\n")
-            except OSError:
-                pass
+            if remember:
+                try:
+                    with seen_file.open("a", encoding="utf-8") as fh:
+                        fh.write(f"{rel}:{name}\n")
+                except OSError:
+                    pass
             out.append(mark)
     return AnalysisResult("\n".join(out))
 
@@ -535,7 +540,7 @@ def python_clone_groups(data, cwd, added):
     return kept
 
 
-def render_clone_groups(groups, seen_file, settings):
+def render_clone_groups(groups, seen_file, settings, remember=True):
     """One block per fresh fingerprint, remembered so a second Stop stays quiet."""
     kept = []
     for group in groups:
@@ -543,7 +548,7 @@ def render_clone_groups(groups, seen_file, settings):
         if any(settings.ignore_re.search(i.get("file", "")) for i in instances):
             continue
         kept.append(group)
-    return format_fresh_groups(kept, seen_file, settings)
+    return format_fresh_groups(kept, seen_file, settings, remember)
 
 
 def jscpd_pattern(suffixes):
@@ -643,7 +648,9 @@ def find_jscpd(changeset, slot):
     if not data:
         return AnalysisResult()
     return AnalysisResult(
-        render_clone_groups(python_clone_groups(data, cwd, added), seen_file, settings)
+        render_clone_groups(
+            python_clone_groups(data, cwd, added), seen_file, settings, changeset.remember
+        )
     )
 
 
@@ -825,18 +832,6 @@ def _python_slot(name, changeset, left):
     return min(changeset.settings.python[name].timeout, left)
 
 
-def row_timeout(row, changeset):
-    """The timeout one analysis keeps when no hook budget bounds the run."""
-    if row.name == "duplication":
-        return changeset.settings.fallow_timeout
-    if row.name == "pyscn":
-        return changeset.settings.python["pyscn"].timeout
-    analysis = changeset.settings.python.get(row.name)
-    if analysis is not None:
-        return analysis.timeout
-    return 20
-
-
 def _whole_slot(_changeset, left):
     return left
 
@@ -929,9 +924,7 @@ def run_analyses(changeset):
         if not row.gate(changeset):
             continue
         if changeset.budget is None:
-            slot = None
-            if row.slot is not None:
-                slot = row.slot(changeset, row_timeout(row, changeset))
+            slot = row.slot(changeset, float("inf")) if row.slot is not None else None
             results[row.name] = row.analyze(changeset, slot)
             continue
         left = changeset.budget - (time.monotonic() - changeset.budget_started)
@@ -1129,6 +1122,7 @@ class Changeset:
         seen_file,
         budget,
         budget_started,
+        remember=True,
     ):
         self.base = base
         self.diff_text = diff_text
@@ -1138,7 +1132,8 @@ class Changeset:
         self.settings = settings
         self.roots = roots
         self.seen_file = seen_file
-        self.session_dir = seen_file.parent
+        self.remember = remember
+        self.session_dir = seen_file.parent if seen_file is not None else None
         self.length_changed = _length_files(changed, settings)
         self.budget_started = budget_started
         self.budget = budget
@@ -1367,40 +1362,12 @@ def check_changeset(session, agent_type, roots, settings, cwd):
         held.close()
 
 
-class _Discard:
-    """A file that keeps nothing. A hand run must not remember a fingerprint."""
-
-    def write(self, text):
-        return len(text)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        return False
-
-
-class _EmptySeen:
-    """A seen file that is never written. A hand run reports every finding."""
-
-    parent = Path(".")
-
-    def read_text(self, encoding="utf-8"):
-        del encoding
-        return ""
-
-    def open(self, mode="a", encoding="utf-8"):
-        del mode, encoding
-        return _Discard()
-
-
 def audit_changeset(roots, settings, cwd, base):
     """The Stop audit for one checkout, with no session and no hook budget.
 
     `base` is the revision to compare with. Each tool keeps its own timeout.
-    A repeat of the same changeset still reports every finding."""
-    if not have("git") or not succeeds(["git", "rev-parse", "--git-dir"], cwd=cwd):
-        return SILENT
+    A repeat of the same changeset still reports every finding. The caller
+    owns the git check: a path that is not a checkout never reaches here."""
     diff_text, changed, untracked = read_changeset(base, cwd)
     held = Changeset(
         base,
@@ -1410,9 +1377,10 @@ def audit_changeset(roots, settings, cwd, base):
         cwd,
         settings,
         roots,
-        _EmptySeen(),
+        None,
         None,
         time.monotonic(),
+        remember=False,
     )
     try:
         return _report(roots, settings, cwd, held)
@@ -1471,19 +1439,20 @@ def _audit(agent_type, roots, settings, cwd, held):
 def _report(roots, settings, cwd, held):
     """The hand-run report. No fingerprint, so a second run prints it again."""
     wants_base = any((root / "changeset_checks").is_dir() for root in roots)
-    deadline = time.monotonic() + max(settings.fallow_timeout, 20)
+    deadline = float("inf")
     base_copy = held.shared_base(deadline) if wants_base else ""
     violations = run_changeset_checks(held.base, roots, cwd, base_copy)
-    return _finish("", settings, cwd, held, violations, remember=False)
+    return _finish("", settings, cwd, held, violations, remember=False, who="This branch")
 
 
-def _finish(agent_type, settings, cwd, held, violations, remember):
+def _finish(agent_type, settings, cwd, held, violations, remember, who=""):
     changed = held.changed
     if not changed and not violations:
         clear_python_problem(cwd)
         return SILENT
 
-    who = f"Subagent '{agent_type}'" if agent_type else "This agent"
+    if not who:
+        who = f"Subagent '{agent_type}'" if agent_type else "This agent"
     clear_python_problem(cwd)
     results = run_analyses(held)
     sections = render_findings(who, results, violations)
@@ -1494,13 +1463,14 @@ def _finish(agent_type, settings, cwd, held, violations, remember):
     length_blocks = results["file-length"].blocks if "file-length" in results else False
 
     blocks = 0
-    blocks_file = held.session_dir / "blocks"
-    if remember:
+    session_dir = held.session_dir if remember else None
+    if session_dir is not None:
+        blocks_file = session_dir / "blocks"
         blocks = _int(blocks_file.read_text(encoding="utf-8") if blocks_file.is_file() else "0", 0)
     if settings.block and (violations or dupes or length_blocks) and blocks < settings.max_blocks:
-        if remember:
+        if session_dir is not None:
             with contextlib.suppress(OSError):
-                blocks_file.write_text(str(blocks + 1), encoding="utf-8")
+                (session_dir / "blocks").write_text(str(blocks + 1), encoding="utf-8")
         if length_blocks:
             reason = f"agent-guard: {settings.file_length.block_message}"
         elif violations:
