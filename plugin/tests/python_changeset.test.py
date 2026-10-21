@@ -142,6 +142,72 @@ JSCPD = textwrap.dedent(
     """
 )
 
+JSCPD_TS = textwrap.dedent(
+    """\
+    fallow = false
+
+    [python]
+    jscpd = true
+    jscpd_extensions = '\\.tsx?$'
+    """
+)
+
+JSCPD_MJS = textwrap.dedent(
+    """\
+    fallow = false
+
+    [python]
+    jscpd = true
+    jscpd_extensions = '\\.mjs$'
+    """
+)
+
+JSCPD_MTS = textwrap.dedent(
+    """\
+    fallow = false
+
+    [python]
+    jscpd = true
+    jscpd_extensions = '\\.(mts|cts)$'
+    """
+)
+
+JSCPD_TS_ONLY = textwrap.dedent(
+    """\
+    fallow = false
+
+    [python]
+    jscpd = true
+    jscpd_extensions = '\\.ts$'
+    """
+)
+
+JSCPD_SRC_TS = textwrap.dedent(
+    """\
+    fallow = false
+
+    [python]
+    jscpd = true
+    jscpd_extensions = '^src/.*\\.ts$'
+    """
+)
+
+TS_CLONE = textwrap.dedent(
+    """\
+    export function duplicatedWork(items: number[]): number {
+      let total = 0;
+      for (const item of items) {
+        if (item > 0) {
+          total += item * 2;
+        } else {
+          total -= 1;
+        }
+      }
+      return total;
+    }
+    """
+)
+
 PYSCN = textwrap.dedent(
     """\
     fallow = false
@@ -212,6 +278,169 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertNotIn("pkg/also.py", report)
         self.assertNotIn("pkg/old.py", report)
         self.assertEqual(second.stdout, "")
+
+    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    def test_jscpd_reports_a_typescript_clone_on_an_added_line(self):
+        """`\\.tsx?$` reports a clone across `.ts` and `.tsx`, naming both paths.
+
+        A Python clone, a blank `.ts` file, a `.ts` file of spaces, and
+        notes.txt stay out of the report. The blank file and the spaces file
+        also put `ts` on the changed-file suffix list.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            src = root / "src"
+            src.mkdir()
+            (src / "work.ts").write_text(TS_CLONE, encoding="utf-8")
+            (root / "notes.py").write_text(CLONE, encoding="utf-8")
+            commit_all(root, "base")
+            (src / "copy.tsx").write_text(TS_CLONE, encoding="utf-8")
+            (src / "blank.ts").write_text("", encoding="utf-8")
+            (src / "spaces.ts").write_text("   \n", encoding="utf-8")
+            (root / "notes_copy.py").write_text(CLONE, encoding="utf-8")
+            (root / "notes.txt").write_text("untracked\n", encoding="utf-8")
+            enable(root, JSCPD_TS)
+
+            result = stop_hook(root, session="ts-dupes")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+        self.assertIn("src/work.ts:1", report)
+        self.assertIn("src/copy.tsx:1", report)
+        self.assertNotIn(".py", report)
+
+    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    def test_jscpd_reports_a_tsx_copy_of_a_committed_ts_block(self):
+        """`\\.tsx?$` reports a `.tsx` copy of a `.ts` block committed on the
+        base. The added file is the only change. Both paths appear in the
+        report. A Python clone, a blank argument file, a file of spaces, and
+        an untracked notes.txt stay out."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            src = root / "src"
+            src.mkdir()
+            (src / "work.ts").write_text(TS_CLONE, encoding="utf-8")
+            (root / "notes.py").write_text(CLONE, encoding="utf-8")
+            commit_all(root, "base")
+            (src / "copy.tsx").write_text(TS_CLONE, encoding="utf-8")
+            (src / "blank").write_text("", encoding="utf-8")
+            (src / "spaces file.ts").write_text("   \n", encoding="utf-8")
+            (root / "notes_copy.py").write_text(CLONE, encoding="utf-8")
+            (root / "notes.txt").write_text("untracked\n", encoding="utf-8")
+            enable(root, JSCPD_TS)
+
+            result = stop_hook(root, session="tsx-of-ts")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+        self.assertIn("src/work.ts:1", report)
+        self.assertIn("src/copy.tsx:1", report)
+        self.assertNotIn(".py", report)
+
+    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    def test_jscpd_reports_an_mjs_clone_on_an_added_line(self):
+        """A Stop audit with jscpd_extensions set to `.mjs` reports a duplicated
+        block when one copy sits on a line the branch added. A Python clone in
+        the same tree stays out of the report."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            src = root / "src"
+            src.mkdir()
+            (src / "work.mjs").write_text(TS_CLONE, encoding="utf-8")
+            (root / "notes.py").write_text(CLONE, encoding="utf-8")
+            commit_all(root, "base")
+            (src / "copy.mjs").write_text(TS_CLONE, encoding="utf-8")
+            (root / "notes_copy.py").write_text(CLONE, encoding="utf-8")
+            enable(root, JSCPD_MJS)
+
+            result = stop_hook(root, session="mjs-dupes")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+        self.assertIn("src/work.mjs:1", report)
+        self.assertIn("src/copy.mjs:1", report)
+        self.assertNotIn(".py", report)
+
+    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    def test_jscpd_reports_an_mts_clone_on_an_added_line(self):
+        """`\\.(mts|cts)$` selects those files, and a duplicated `.mts` block
+        on an added line is reported. A Python clone stays out of the report."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            src = root / "src"
+            src.mkdir()
+            (src / "work.mts").write_text(TS_CLONE, encoding="utf-8")
+            (root / "notes.py").write_text(CLONE, encoding="utf-8")
+            commit_all(root, "base")
+            (src / "copy.mts").write_text(TS_CLONE, encoding="utf-8")
+            (root / "notes_copy.py").write_text(CLONE, encoding="utf-8")
+            enable(root, JSCPD_MTS)
+
+            result = stop_hook(root, session="mts-dupes")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+        self.assertIn("src/work.mts:1", report)
+        self.assertIn("src/copy.mts:1", report)
+        self.assertNotIn(".py", report)
+
+    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    def test_jscpd_leaves_a_cts_copy_of_a_ts_block_out_of_the_report(self):
+        """`\\.ts$` selects `.ts` only. A `.cts` copy of an added `.ts` block
+        stays out of the report."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            src = root / "src"
+            src.mkdir()
+            (src / "work.ts").write_text(TS_CLONE, encoding="utf-8")
+            (src / "other.ts").write_text("export const kept = 1;\n", encoding="utf-8")
+            commit_all(root, "base")
+            (src / "copy.ts").write_text("export const kept = 1;\n", encoding="utf-8")
+            (src / "also.cts").write_text(TS_CLONE, encoding="utf-8")
+            enable(root, JSCPD_TS_ONLY)
+
+            result = stop_hook(root, session="cts-out")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    def test_jscpd_scans_typescript_inside_an_anchored_extension(self):
+        """`^src/.*\\.ts$` selects TypeScript under src, so a clone there is
+        reported."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            src = root / "src"
+            src.mkdir()
+            (src / "work.ts").write_text(TS_CLONE, encoding="utf-8")
+            (root / "outside.ts").write_text(TS_CLONE, encoding="utf-8")
+            commit_all(root, "base")
+            (src / "copy.ts").write_text(TS_CLONE, encoding="utf-8")
+            (root / "outside_copy.ts").write_text(TS_CLONE, encoding="utf-8")
+            enable(root, JSCPD_SRC_TS)
+
+            result = stop_hook(root, session="anchored-ts")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("src/work.ts:1", report)
+        self.assertIn("src/copy.ts:1", report)
 
     @unittest.skipUnless(shutil.which("uvx"), "requires uvx")
     def test_pyscn_reports_only_a_cycle_the_base_lacked(self):

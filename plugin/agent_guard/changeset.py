@@ -491,24 +491,79 @@ def render_clone_groups(groups, seen_file, settings):
     return format_fresh_groups(kept, seen_file, settings)
 
 
+def jscpd_pattern(suffixes):
+    """jscpd --pattern for the suffixes the extension regex selects.
+
+    One suffix is `**/*.<suffix>`. Several are `**/*.{<suffixes>}`. A suffix
+    outside jscpd's format table still scans: the pattern names the file."""
+    if not suffixes:
+        return ""
+    if len(suffixes) == 1:
+        return f"**/*.{suffixes[0]}"
+    return "**/*.{" + ",".join(suffixes) + "}"
+
+
+def jscpd_cross_formats(suffixes):
+    """Formats jscpd must compare with each other for this selection.
+
+    `.ts` and `.tsx` are different formats, so a clone across them is invisible
+    unless they share a cross-format group. Same-format clones need no group."""
+    present = {suffix for suffix in suffixes if suffix in {"ts", "tsx", "js", "jsx"}}
+    if len(present) < 2:
+        return ""
+    return "js-ts"
+
+
+def jscpd_suffixes(ext_re):
+    """Suffixes the extensions regex writes, so the changeset lists them."""
+    written = []
+    for bare, grouped in re.findall(r"\\\.(?:([A-Za-z0-9]+)|(\([^)]*\)))", ext_re.pattern):
+        pieces = [bare] if bare else grouped[1:-1].split("|")
+        written.extend(piece for piece in pieces if piece.isascii() and piece.isalnum())
+    return list(dict.fromkeys(written))
+
+
+def jscpd_scan_files(changed, ext_re, cwd):
+    """Worktree paths the extension regex selects, including unchanged files."""
+    paths = set(changed)
+    for line in run(["git", "ls-files", "-z"], cwd=cwd).split("\0"):
+        rel = line.strip()
+        if rel:
+            paths.add(rel)
+    return [rel for rel in paths if ext_re.search(rel)]
+
+
+def jscpd_scan_suffixes(paths):
+    """The suffix list, computed once, for the pattern and the cross-format group."""
+    suffixes = list(dict.fromkeys(Path(rel).suffix.lstrip(".") for rel in paths))
+    return [suffix for suffix in suffixes if suffix.isascii() and suffix.isalnum()]
+
+
 def find_jscpd(changed, analysis, settings, cwd, base, timeout, seen_file):
-    """Clone groups among Python files, when one instance sits on an added line."""
-    py_changed = [rel for rel in changed if analysis.ext_re.search(rel)]
-    if not py_changed:
+    """Clone groups among the file types this analysis reads, when one
+    instance sits on an added line."""
+    selected = [rel for rel in changed if analysis.ext_re.search(rel)]
+    if not selected:
         return ""
     cmd = tool_argv("jscpd", cwd)
     if cmd is None:
         return ""
-    added = {rel: changed_lines(str(cwd / rel), base, cwd) for rel in py_changed}
+    added = {rel: changed_lines(str(cwd / rel), base, cwd) for rel in selected}
+    suffixes = jscpd_scan_suffixes(jscpd_scan_files(changed, analysis.ext_re, cwd))
+    pattern = jscpd_pattern(suffixes)
+    if not pattern:
+        return ""
+    cross = jscpd_cross_formats(suffixes)
     try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
         out_dir = Path(tempfile.mkdtemp(prefix="jscpd-", dir=STATE_DIR))
     except OSError:
         return ""
     report = out_dir / "jscpd-report.json"
     argv = [
         *cmd,
-        "--format",
-        "python",
+        "--pattern",
+        pattern,
         "--min-lines",
         JSCPD_MIN_LINES,
         "--min-tokens",
@@ -522,10 +577,11 @@ def find_jscpd(changed, analysis, settings, cwd, base, timeout, seen_file):
         "--absolute",
         "--silent",
         "--no-gitignore",
-        ".",
     ]
-    # --format python selects the language, so the scan points at the tree
-    # root instead of putting every tracked file on argv.
+    if cross:
+        argv.extend(["--cross-formats", cross])
+    argv.append(".")
+    # The tree root keeps an unchanged original visible to a clone of a new file.
     run_external("jscpd", argv, timeout, cwd)
     try:
         data = json.loads(report.read_text(encoding="utf-8")) if report.is_file() else None
@@ -712,10 +768,15 @@ def find_python(changed, settings, cwd, base, budget, seen_file=None):
 
 def source_globs(settings):
     """File types the changeset listing reads. Python globs join only when a
-    tree turned a Python analysis on, so an opted-out tree keeps its old list."""
+    tree turned a Python analysis on, so an opted-out tree keeps its old list.
+    jscpd also reads the suffixes its extensions regex matches."""
+    globs = list(SOURCE_GLOBS)
     if any(analysis.enabled for analysis in settings.python.values()):
-        return (*SOURCE_GLOBS, *PYTHON_GLOBS)
-    return SOURCE_GLOBS
+        globs.extend(PYTHON_GLOBS)
+    jscpd = settings.python["jscpd"]
+    if jscpd.enabled:
+        globs.extend(f"*.{suffix}" for suffix in jscpd_suffixes(jscpd.ext_re))
+    return tuple(dict.fromkeys(globs))
 
 
 def _line_count(path):
