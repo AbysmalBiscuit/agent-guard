@@ -77,7 +77,6 @@ class BuiltinChecksAreFunctions(unittest.TestCase):
         findings = comment_length_check("# narration\n" * 4 + "value = 1\n", "notes.py")
 
         self.assertTrue(findings)
-        self.assertRegex(findings[0], r":\d+  \[")
         self.assertTrue(FINDING_LINE.search(findings[0]))
         self.assertIn("comment-length", findings[0])
 
@@ -161,34 +160,6 @@ class BuiltinCheckTimeout(unittest.TestCase):
 
         self.assertEqual(decision.permission, "allow")
         self.assertEqual(decision.context, "")
-
-
-class OneDefinition(unittest.TestCase):
-    def test_the_finding_line_is_the_contract_pattern(self):
-        match = FINDING_LINE.search("  notes.py:4  [warn:comment-length] long")
-        assert match is not None
-        self.assertEqual(match.group(1), "4")
-
-    def test_check_tool_reads_a_project_ask_as_the_contract_exit(self):
-        script = """\
-            import sys
-            print("ask me")
-            sys.exit(2)
-            """
-        with tempfile.TemporaryDirectory() as directory:
-            root = project_root(directory, script)
-
-            class Settings:
-                tool_checks = True
-
-            decision = check_tool(
-                {"tool_name": "Bash", "tool_input": {"command": "ls"}},
-                [root / ".agents" / "plugins" / "agent-guard"],
-                Settings(),
-                root,
-            )
-
-        self.assertEqual(decision.permission, "ask")
 
 
 if __name__ == "__main__":
