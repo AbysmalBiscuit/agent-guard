@@ -26,8 +26,9 @@ from .contract import (
 )
 from .process import have, run, run_full
 
-# A check that outruns its bound is silence. The agent cannot wait, and a
-# check the agent cannot wait for should not become a refusal.
+# A check that outruns its bound is silence. A file check reads a whole file,
+# so it keeps a longer bound than a tool check.
+FILE_CHECK_TIMEOUT = 10
 CHECK_TIMEOUT = 5
 
 
@@ -67,7 +68,7 @@ def run_checks(path, roots, cwd):
     for check in FILE_CHECKS:
         name = check.__module__.rsplit(".", 1)[-1]
         try:
-            with _bounded(CHECK_TIMEOUT):
+            with _bounded(FILE_CHECK_TIMEOUT):
                 lines = check(source, path)
         except TimeoutError:
             _state.log(2, "check", script=name, verdict="silent", reason="timeout")

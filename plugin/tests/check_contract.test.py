@@ -26,7 +26,11 @@ from agent_guard.checks.comment_length import check as comment_length_check  # n
 from agent_guard.checks.shell_conventions import check as shell_conventions_check  # noqa: E402
 from agent_guard.checks.text_quality import check as text_quality_check  # noqa: E402
 from agent_guard.contract import FINDING_LINE  # noqa: E402
-from agent_guard.file_checks import CHECK_TIMEOUT, check_tool  # noqa: E402
+from agent_guard.file_checks import (  # noqa: E402
+    CHECK_TIMEOUT,
+    FILE_CHECK_TIMEOUT,
+    check_tool,
+)
 
 EM_DASH = "\u2014"
 
@@ -142,6 +146,7 @@ class BuiltinCheckTimeout(unittest.TestCase):
         with (
             patch("agent_guard.file_checks.TOOL_CHECKS", (stall,)),
             patch("agent_guard.file_checks.CHECK_TIMEOUT", 0.05),
+            patch("agent_guard.file_checks.FILE_CHECK_TIMEOUT", 0.05),
         ):
 
             class Settings:
