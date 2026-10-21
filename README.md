@@ -155,7 +155,7 @@ timeout = 20
 | `vulture_min_confidence` | `60` | lowest confidence vulture reports |
 | `timeout` | `20` | seconds one analysis may run |
 
-The tools run through `uvx` at the versions pinned in `plugin/scripts/agent_guard.py`, or from the tree's own environment when it provides them. Nothing is installed into the project. A missing `uv`, a missing tool, or a timeout leaves the audit silent. `doctor` lists which analyses are on, where each setting came from, and that silence.
+The tools run through `uvx` at the versions pinned in `plugin/scripts/agent_guard.py`, or from the tree's own `.venv` when it provides them. Nothing is installed into the project. A missing `uv`, a missing tool, or a timeout leaves the audit silent. `doctor` lists which analyses are on, where each setting came from, and that silence.
 
 `mandatory/` holds checks no setting, root, or environment variable can disable or move. They load only from the installed plugin and run on shell tools.
 

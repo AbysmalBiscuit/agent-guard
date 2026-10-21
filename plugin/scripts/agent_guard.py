@@ -236,14 +236,10 @@ def clear_python_problem(cwd):
 def tool_command(name, cwd):
     """The argv that launches one analysis tool, or None when it cannot start.
 
-    The tree's own .venv copy wins, then a copy on PATH. Otherwise uvx runs the
-    version pinned here."""
+    The tree's own .venv copy wins. Otherwise uvx runs the version pinned here."""
     own = Path(cwd) / ".venv" / "bin" / name
     if own.is_file() and os.access(own, os.X_OK):
         return [str(own)]
-    found = shutil.which(name)
-    if found:
-        return [found]
     uvx = shutil.which("uvx")
     if uvx is None:
         record_python_problem(f"{name}: uv is not on PATH, so the analysis stayed silent", cwd)
