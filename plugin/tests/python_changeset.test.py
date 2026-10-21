@@ -247,7 +247,7 @@ class PythonChangesetTests(unittest.TestCase):
             hook = stop_hook(root, session="bare", extra_env=bare)
             doctor = run_hook(
                 None,
-                flag=("doctor",),
+                args=("doctor",),
                 capture_output=True,
                 text=True,
                 cwd=root,
@@ -307,7 +307,7 @@ class PythonChangesetTests(unittest.TestCase):
             hook = stop_hook(root, session="timeout", extra_env={"PATH": str(bindir)}, timeout=20)
             doctor = run_hook(
                 None,
-                flag=("doctor",),
+                args=("doctor",),
                 capture_output=True,
                 text=True,
                 cwd=root,

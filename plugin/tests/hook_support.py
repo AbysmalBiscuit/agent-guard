@@ -11,6 +11,6 @@ if str(PLUGIN_ROOT) not in sys.path:
 HOOK = [sys.executable, str(PLUGIN_ROOT / "agent_guard")]
 
 
-def run_hook(payload, flag=(), **kwargs):
-    """One hook invocation. `flag` follows the package path, as `("--codex",)` does."""
-    return subprocess.run([*HOOK, *flag], input=payload, **kwargs)
+def run_hook(payload, args=(), **kwargs):
+    """One hook invocation. `args` follows the package path, as `("--codex",)` does."""
+    return subprocess.run([*HOOK, *args], input=payload, **kwargs)

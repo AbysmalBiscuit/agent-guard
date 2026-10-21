@@ -88,7 +88,7 @@ class FallowCleanupTests(unittest.TestCase):
                                 "cwd": str(projects[0]),
                             }
                         ),
-                        flag=("--codex",) if codex else (),
+                        args=("--codex",) if codex else (),
                         capture_output=True,
                         text=True,
                         env=env,

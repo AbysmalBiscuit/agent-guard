@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import unittest
 
-from hook_support import run_hook as invoke_hook
+from hook_support import run_hook
 
 EN_DASH = chr(0x2013)
 
@@ -38,12 +38,12 @@ def grok_payload(event, cwd, **fields):
     return payload
 
 
-def run_hook(payload, cwd):
+def invoke(payload, cwd):
     env = os.environ.copy()
     env["XDG_STATE_HOME"] = str(pathlib.Path(cwd) / "state")
-    return invoke_hook(
+    return run_hook(
         json.dumps(payload),
-        flag=("--grok",),
+        args=("--grok",),
         capture_output=True,
         text=True,
         cwd=cwd,
@@ -63,7 +63,7 @@ class GrokToolTests(unittest.TestCase):
                 toolInput={"command": "rg -rn foo src", "description": "search"},
                 toolInputTruncated=False,
             )
-            result = run_hook(payload, directory)
+            result = invoke(payload, directory)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         output = json.loads(result.stdout)["hookSpecificOutput"]
@@ -84,7 +84,7 @@ class GrokToolTests(unittest.TestCase):
                 },
                 toolInputTruncated=False,
             )
-            result = run_hook(payload, directory)
+            result = invoke(payload, directory)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
@@ -152,7 +152,7 @@ class GrokStopTests(unittest.TestCase):
                     "subagentType": "explore",
                     "stopHookActive": False,
                 }
-            result = run_hook(grok_payload(event, root, **fields), root)
+            result = invoke(grok_payload(event, root, **fields), root)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout

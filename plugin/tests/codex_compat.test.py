@@ -41,7 +41,7 @@ class CodexCompatibilityTests(unittest.TestCase):
 
             result = run_hook(
                 json.dumps(payload),
-                flag=("--codex",),
+                args=("--codex",),
                 capture_output=True,
                 text=True,
                 cwd=root,
@@ -119,7 +119,7 @@ class CodexCompatibilityTests(unittest.TestCase):
             env["XDG_STATE_HOME"] = str(root / "state")
             result = run_hook(
                 json.dumps(payload),
-                flag=("--codex",),
+                args=("--codex",),
                 capture_output=True,
                 text=True,
                 cwd=root,

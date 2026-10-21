@@ -191,7 +191,7 @@ def doctor(project, checkout, env_extra=None, state_home=None):
     env = hook_env(project, checkout, env_extra, state_home=state_home)
     result = run_hook(
         None,
-        flag=("doctor",),
+        args=("doctor",),
         capture_output=True,
         text=True,
         cwd=project,
