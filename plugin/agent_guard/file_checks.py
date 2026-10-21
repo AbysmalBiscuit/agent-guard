@@ -120,7 +120,7 @@ def _failed(name):
     )
 
 
-def _merge(named):
+def _merge(named, event):
     """One decision from named check results. A denial outranks an ask."""
     advice, asks, denials = [], [], []
     for name, decision in named:
@@ -134,7 +134,7 @@ def _merge(named):
             verdict = "advise"
         _state.log(
             2,
-            "check",
+            event,
             script=name,
             verdict=verdict,
             reason=text.splitlines()[0] if text else None,
@@ -168,18 +168,10 @@ def run_mandatory(payload):
             with _bounded(CHECK_TIMEOUT):
                 named.append((name, check(payload)))
         except TimeoutError:
-            _state.log(2, "check", script=name, verdict="silent", reason="timeout")
+            _state.log(2, "mandatory", script=name, verdict="silent", reason="timeout")
         except Exception:
             named.append((name, denied(_failed(name), _failed(name))))
-    merged = _merge(named)
-    if merged.permission != "allow" or merged.context:
-        _state.log(
-            1,
-            "decision",
-            tool=payload.get("tool_name") or "",
-            outcome=merged.permission,
-        )
-    return merged
+    return _merge(named, "mandatory")
 
 
 def script_verdict(out, code):
@@ -215,10 +207,10 @@ def check_tool(payload, roots, settings, cwd):
             with _bounded(CHECK_TIMEOUT):
                 named.append((name, check(payload)))
         except TimeoutError:
-            _state.log(2, "check", script=name, verdict="silent", reason="timeout")
+            _state.log(2, "tool-check", script=name, verdict="silent", reason="timeout")
         except Exception:
             # A broken built-in degrades to silence rather than denying work.
-            _state.log(2, "check", script=name, verdict="silent", reason="raised")
+            _state.log(2, "tool-check", script=name, verdict="silent", reason="raised")
     for root in roots:
         checks = root / "tool_checks"
         if not checks.is_dir():
@@ -232,7 +224,7 @@ def check_tool(payload, roots, settings, cwd):
             )
             named.append((script.name, script_verdict(out, code)))
 
-    merged = _merge(named)
+    merged = _merge(named, "tool-check")
     _state.log(
         1,
         "decision",
