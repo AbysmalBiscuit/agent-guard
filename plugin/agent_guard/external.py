@@ -138,27 +138,18 @@ def run_external(name, argv, timeout, cwd):
     return done.stdout or ""
 
 
-def missing_launcher_note(enabled, cwd):
+def missing_launcher_notes(enabled, cwd):
     """One doctor line per launcher that an enabled tool cannot start."""
-    lines = []
-    seen = set()
+    by_launcher = {}
     for tool in EXTERNAL_TOOLS:
-        launcher = tool.launcher
-        if tool.name not in enabled or launcher.name in seen:
+        if tool.name not in enabled or _own_venv(tool, cwd) is not None:
             continue
-        if _own_venv(tool, cwd) is not None:
+        by_launcher.setdefault(tool.launcher.name, []).append(tool)
+    lines = []
+    for tools in by_launcher.values():
+        launcher = tools[0].launcher
+        if _launcher_path(tools[0]) is not None:
             continue
-        if _launcher_path(tool) is not None:
-            continue
-        names = ", ".join(
-            other.name
-            for other in EXTERNAL_TOOLS
-            if other.launcher.name == launcher.name
-            and other.name in enabled
-            and _own_venv(other, cwd) is None
-        )
-        if not names:
-            continue
+        names = ", ".join(tool.name for tool in tools)
         lines.append(f"{launcher.label} is not on PATH, so {names} stays silent")
-        seen.add(launcher.name)
     return lines
