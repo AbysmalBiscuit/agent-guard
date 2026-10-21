@@ -188,8 +188,8 @@ lines = 4000
 | Setting | Default | Effect |
 |---|---|---|
 | `enabled` | `false` | `true` compares each changed file with its limit |
-| `warn_message` | split the file by responsibility, and move tests into focused files | message for a file above `warn` |
-| `block_message` | split the file by responsibility, and move tests into focused files | message for a file above `block_lines`, and for an accepted file that grew |
+| `warn_message` | split this file by responsibility, and move tests into focused files | message for a file above `warn` |
+| `block_message` | split this file by responsibility, and move tests into focused files | message for a file above `block_lines`, and for an accepted file that grew |
 | `limits` | none | rows that name a file type, a path, or a glob |
 | `extensions` | unset | extension regex that selects the files a type row covers |
 | `pattern` | unset | path or glob a row covers. A path row outranks a type row |
