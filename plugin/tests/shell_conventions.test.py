@@ -52,6 +52,9 @@ class ShellConventionsTests(unittest.TestCase):
         command = "fd . | xargs grep -r foo ."
         self.assert_denied(command, ["rg"], "grep over files")
 
+    def test_a_heredoc_body_is_not_a_command(self):
+        self.assert_allowed("cat > notes.md <<EOF\ngrep -r foo .\nEOF", ["rg"])
+
     def test_rg_files_pipeline_needs_fd(self):
         self.assert_denied("rg --files | rg test", ["rg", "fd"], "fd")
         self.assert_allowed("rg --files | rg test", ["rg"])

@@ -14,6 +14,8 @@ PUNCTUATION = "();<>|&\n"
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*=")
 DURATION = re.compile(r"^\d+[smhd]?$")
 UNMODELLED = re.compile(r"\$'|`|\\\n|(?<!<)<<(?!<)")
+# A heredoc operator and its delimiter word, quoted or not.
+HEREDOC = re.compile(r"<<(-?)[ \t]*(['\"]?)([^\s;&|<>()'\"]+)\2")
 # A short-option cluster that carries `-c`, such as `-c`, `-lc` or `-ec`.
 SHELL_SCRIPT_FLAG = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")
 # Words that leave the real command word still ahead.
@@ -101,15 +103,18 @@ def command_name(word):
     return base[:-4] if base.endswith(".exe") else base
 
 
-def read_commands(script, keep_backslashes=False, partial=True, depth=0):
+def read_commands(script, keep_backslashes=False, partial=True, keep_heredocs=False, depth=0):
     """Each command the script runs, in order.
 
     `keep_backslashes` reads a backslash as a path separator, not an escape.
     An unclosed quote ends the read: with `partial` the commands before it
-    stay, without it the script yields nothing.
+    stay, without it the script yields nothing. A heredoc body is text, not
+    commands, unless `keep_heredocs` asks to read it as commands.
     """
     if depth > MAX_DEPTH or not script or not script.strip():
         return []
+    if not keep_heredocs:
+        script = _drop_heredoc_bodies(script, keep_backslashes)
     tokens, closed = _tokens(script, keep_backslashes)
     if not closed and not partial:
         return []
@@ -135,6 +140,63 @@ class _Source(io.StringIO):
             self.seek(self.tell() - 1)
             return line[:-1]
         return line
+
+
+def _drop_heredoc_bodies(script, keep_backslashes):
+    """The script without the body lines of its heredocs.
+
+    Quotes and comments are tracked, so a `<<` inside them opens no heredoc.
+    """
+    kept, pending, quote, index = [], [], "", 0
+    while index < len(script):
+        char = script[index]
+        if quote:
+            if char == quote:
+                quote = ""
+            elif char == "\\" and quote == '"':
+                kept.append(script[index : index + 2])
+                index += 2
+                continue
+        elif char in "'\"":
+            quote = char
+        elif char == "\\" and not keep_backslashes:
+            kept.append(script[index : index + 2])
+            index += 2
+            continue
+        elif char == "#" and (index == 0 or script[index - 1] in " \t\n;&|("):
+            end = script.find("\n", index)
+            end = len(script) if end < 0 else end
+            kept.append(script[index:end])
+            index = end
+            continue
+        elif script.startswith("<<", index) and not script.startswith("<<<", index):
+            match = HEREDOC.match(script, index)
+            if match:
+                pending.append((match.group(3), match.group(1) == "-"))
+                kept.append(match.group(0))
+                index = match.end()
+                continue
+        elif char == "\n" and pending:
+            kept.append(char)
+            index = _skip_bodies(script, index + 1, pending)
+            pending = []
+            continue
+        kept.append(char)
+        index += 1
+    return "".join(kept)
+
+
+def _skip_bodies(script, index, pending):
+    """The index past the bodies that start at `index`, one per pending delimiter."""
+    for delimiter, strip_tabs in pending:
+        while index < len(script):
+            end = script.find("\n", index)
+            end = len(script) if end < 0 else end
+            line = script[index:end]
+            index = end + 1
+            if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                break
+    return index
 
 
 def _tokens(script, keep_backslashes):

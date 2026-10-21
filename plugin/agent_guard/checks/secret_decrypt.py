@@ -95,9 +95,9 @@ def find_violation(command):
     # A backslash stays a path separator, so `C:\tools\age.exe` keeps its name.
     items = read_commands(command, keep_backslashes=True)
     if not vouches_for(command, keep_backslashes=True):
-        # Fail closed: read the line again with every quote removed, so a
-        # command hidden by quoting the reader misreads still shows.
-        items += read_commands(QUOTING.sub(";", command), keep_backslashes=True)
+        # Fail closed: read the line again with every quote removed and every
+        # heredoc body read as commands, so a command the reader misreads still shows.
+        items += read_commands(QUOTING.sub(";", command), keep_backslashes=True, keep_heredocs=True)
     for item in items:
         reason = command_violation(item)
         if reason is not None:

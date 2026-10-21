@@ -81,6 +81,11 @@ class ReadCommandsTests(unittest.TestCase):
             'rg -n "a|b" file': [("rg", ("-n", "a|b", "file"))],
             "rg -n 'a; b && c > d' file": [("rg", ("-n", "a; b && c > d", "file"))],
             "{ rg -n foo; }": [("rg", ("-n", "foo"))],
+            # A heredoc body is text, up to its delimiter.
+            "cat > notes.md <<EOF\ngrep -r foo .\nEOF\nls": [("cat", ()), ("ls", ())],
+            "cat <<-'EOF' | head\n\trg -rn foo\n\tEOF": [("cat", ()), ("head", ())],
+            'echo "<<EOF"\nrg -n foo': [("echo", ("<<EOF",)), ("rg", ("-n", "foo"))],
+            "rg -n foo # <<EOF\nls": [("rg", ("-n", "foo")), ("ls", ())],
         }
         for command, expected in cases.items():
             with self.subTest(command=command):
@@ -104,6 +109,13 @@ class ReadCommandsTests(unittest.TestCase):
         for command, expected in cases.items():
             with self.subTest(command=command):
                 self.assertEqual(vouches_for(command), expected)
+
+    def test_heredoc_bodies_are_read_as_commands_when_asked(self):
+        command = "cat <<EOF\nrg -n foo\nEOF"
+        self.assertEqual(
+            names(command, keep_heredocs=True),
+            [("cat", ()), ("rg", ("-n", "foo")), ("eof", ())],
+        )
 
     def test_blank_input_returns_nothing(self):
         for command in ("", "   ", "   \n  "):

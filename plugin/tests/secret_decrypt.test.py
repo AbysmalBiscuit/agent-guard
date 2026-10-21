@@ -34,6 +34,7 @@ MUST_BLOCK = [
     "eval age -d f",
     "ssh host 'x; age -d f'",
     "su -c 'x; age -d f'",
+    "cat <<EOF | bash\nage -d f\nEOF",
     # Quoting the reader does not model, and a line it cannot parse, fail closed.
     "echo $'\\''; age -d f",
     "x=`age -d f`",

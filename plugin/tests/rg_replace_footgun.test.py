@@ -29,6 +29,9 @@ class RgReplaceFootgunTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(verdict(command).permission, "allow")
 
+    def test_a_heredoc_body_is_not_a_command(self):
+        self.assertEqual(verdict("cat <<EOF\nrg -rn foo\nEOF").permission, "allow")
+
     def test_empty_and_blank_stay_silent(self):
         for command in ("", "   ", "   \n  "):
             with self.subTest(command=command):
