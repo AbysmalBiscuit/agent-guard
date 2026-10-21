@@ -312,9 +312,7 @@ class PythonChangesetTests(unittest.TestCase):
             marker = root / "jscpd-invoked"
             bunx = bindir / "bunx"
             bunx.write_text(
-                "#!/bin/sh\n"
-                f"printf '%s\\n' \"$*\" >> {marker}\n"
-                "exit 0\n",
+                f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {marker}\nexit 0\n",
                 encoding="utf-8",
             )
             bunx.chmod(0o755)
@@ -353,9 +351,7 @@ class PythonChangesetTests(unittest.TestCase):
             marker = root / "jscpd-invoked"
             bunx = bindir / "bunx"
             bunx.write_text(
-                "#!/bin/sh\n"
-                f"printf '%s\\n' \"$*\" >> {marker}\n"
-                "exit 0\n",
+                f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {marker}\nexit 0\n",
                 encoding="utf-8",
             )
             bunx.chmod(0o755)
