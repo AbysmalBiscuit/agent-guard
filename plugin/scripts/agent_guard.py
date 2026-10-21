@@ -261,7 +261,7 @@ def run(cmd, timeout=20, cwd=None, stdin=None, env=None):
             errors="replace",
             check=False,
         )
-    except (subprocess.TimeoutExpired, Exception):
+    except Exception:
         return ""
     return p.stdout or ""
 
