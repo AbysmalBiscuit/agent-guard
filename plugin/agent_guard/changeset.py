@@ -807,13 +807,23 @@ def _length_files(base, cwd, settings):
     )
 
 
+def _usable_limits(limits):
+    """Rows the check can apply. An accept row needs a recorded size."""
+    return [limit for limit in limits if not _accept_without_lines(limit)]
+
+
+def _accept_without_lines(limit):
+    return limit.accept and limit.lines <= 0
+
+
 def _length_limit(rel, limits):
     """A named path or glob outranks an extension regex.
 
     The first matching path wins, then the first matching extension. A path
     limit listed after a broad extension still applies to that path."""
-    named = [limit for limit in limits if limit.pattern]
-    typed = [limit for limit in limits if limit.ext_re is not None]
+    usable = _usable_limits(limits)
+    named = [limit for limit in usable if limit.pattern]
+    typed = [limit for limit in usable if limit.ext_re is not None]
     for limit in named:
         if _length_pattern_match(rel, limit.pattern):
             return limit

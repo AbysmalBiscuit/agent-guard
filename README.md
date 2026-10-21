@@ -196,7 +196,7 @@ lines = 4000
 | `warn` | unset | line count above which a file warns |
 | `block_lines` | unset | line count above which a file blocks |
 | `accept` | `false` | `true` accepts the file at `lines` and fails only when it grows |
-| `lines` | unset | recorded size of an accepted file |
+| `lines` | unset | recorded size of an accepted file. An accept row without `lines`, or with `lines` at zero or below, is ignored, and `doctor` reports it as a config error |
 
 complexipy, lizard, vulture and pyscn run through `uvx`, and jscpd through `bunx`, at the versions in `plugin/agent_guard/external.py`. A tree's own `.venv` supplies a tool when it has one. Nothing is installed into the project. A missing launcher, a missing tool, or a timeout leaves the audit silent. `doctor` lists which analyses are on, where each setting came from, and that silence.
 

@@ -42,6 +42,28 @@ def init_repo(root):
     subprocess.run(["git", "config", "user.name", "Agent Guard Test"], cwd=root, check=True)
 
 
+def doctor_hook(root):
+    """Stdout of `agent_guard doctor` in this tree."""
+    env = os.environ.copy()
+    for key in list(env):
+        if key.startswith("AGENT_GUARD_"):
+            env.pop(key)
+    env["HOME"] = str(root / "home")
+    env["AGENT_GUARD_CONFIG_DIR"] = str(PLUGIN)
+    env["AGENT_GUARD_LOG"] = "0"
+    env["XDG_STATE_HOME"] = str(root / "state")
+    result = run_hook(
+        None,
+        args=("doctor",),
+        capture_output=True,
+        text=True,
+        cwd=root,
+        env=env,
+        timeout=30,
+    )
+    return result
+
+
 def stop_hook(root, session="test-session", extra_env=None):
     env = os.environ.copy()
     for key in list(env):
@@ -322,6 +344,49 @@ lines = 6
         self.assertNotIn("kept.py", report)
         self.assertNotIn("   .py", report)
         self.assertEqual(specific["permissionDecision"], "deny")
+
+    def test_an_accept_row_without_lines_is_ignored(self):
+        """An accept row with no lines, or with lines at zero, does not accept
+        the file. The file stays quiet, and doctor names the row as a config
+        error. A blank path and an untracked notes.txt stay quiet beside it."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            write_lines(root / "seed.py", 1)
+            commit_all(root, "base")
+            write_lines(root / "open.py", 40)
+            write_lines(root / "zero.py", 40)
+            (root / "   ").write_text("x\n" * 40, encoding="utf-8")
+            (root / "notes.txt").write_text("untracked\n", encoding="utf-8")
+            enable(
+                root,
+                """\
+fallow = false
+block = true
+
+[file_length]
+enabled = true
+[[file_length.limits]]
+pattern = "open.py"
+accept = true
+
+[[file_length.limits]]
+pattern = "zero.py"
+accept = true
+lines = 0
+""",
+            )
+
+            result = stop_hook(root)
+            reported = doctor_hook(root)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(reported.returncode, 0, reported.stderr)
+        self.assertIn("config error", reported.stdout)
+        self.assertIn("open.py", reported.stdout)
+        self.assertIn("zero.py", reported.stdout)
 
     def test_block_false_reports_the_block_level_without_refusing(self):
         """The block level still names the file when the global block setting

@@ -91,6 +91,10 @@ def doctor(cwd):
     state = "on" if length.enabled else "off"
     print(f"  file length      : {state}  from {length.origin or 'default'}")
     print(f"    limits         : {len(length.limits)}")
+    for limit in length.limits:
+        if limit.accept and limit.lines <= 0:
+            name = limit.pattern or limit.extensions or "(unnamed)"
+            print(f"    config error   : accept row {name} has no lines, so it is ignored")
     problem = python_tool_problem(cwd)
     if problem:
         print(f"  python tools : {problem}")
