@@ -16,9 +16,9 @@ their payload re-checked.
 Not covered: a binary reached through a shell variable or renamed on disk.
 """
 
-import json
 import re
-import sys
+
+from ..contract import Decision, denied
 
 DECRYPT_BINARIES = {
     "age",
@@ -143,34 +143,21 @@ def find_violation(command, depth=0):
     return None
 
 
-def main():
-    if (sys.argv[1] if len(sys.argv) > 1 else "") != "Bash":
-        return 0
-    try:
-        payload = json.loads(sys.stdin.read() or "{}")
-    except ValueError:
-        return 0
-
-    command = payload.get("tool_input", {}).get("command")
+def check(payload):
+    """The decision for one shell command, or silence for any other tool."""
+    if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
+        return Decision()
+    tool_input = payload.get("tool_input")
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
     if not isinstance(command, str):
-        return 0
+        return Decision()
 
     reason = find_violation(command)
     if reason is None:
-        return 0
+        return Decision()
 
-    print(
+    message = (
         f"Blocked: {reason}. Decrypting secrets and reading age identities is not "
         "permitted. Ask Lev to run this command directly if it is needed."
     )
-    return 1
-
-
-if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except SystemExit:
-        raise
-    except BaseException:
-        # A broken check degrades to silence rather than denying real work.
-        sys.exit(0)
+    return denied(message, message)

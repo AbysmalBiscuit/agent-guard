@@ -17,9 +17,10 @@ checks that have something to say about the call being made.
 """
 
 import os
-import sys
 import time
 from pathlib import Path
+
+from ..contract import Decision
 
 STAMP_NAME = ".agent-guard-prune"
 INTERVAL_SECONDS = 24 * 60 * 60
@@ -106,24 +107,15 @@ def max_age_days():
         return DEFAULT_MAX_AGE_DAYS
 
 
-def main():
+def check(_payload):
+    """Prune the redirected temp directory. The call itself is always allowed."""
     root = target()
     if root is None:
-        return 0
+        return Decision()
     now = time.time()
     # The stamp lives in the pruned tree and is written at `now`, so the cutoff
     # can never select it however long pruning has been stalled.
     if not claim(root / STAMP_NAME, now):
-        return 0
+        return Decision()
     prune(root, now - max_age_days() * 86400, time.monotonic() + DEADLINE_SECONDS)
-    return 0
-
-
-if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except SystemExit:
-        raise
-    except BaseException:
-        # A broken check degrades to silence rather than denying real work.
-        sys.exit(0)
+    return Decision()

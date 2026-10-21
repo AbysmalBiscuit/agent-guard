@@ -1,21 +1,12 @@
 #!/usr/bin/env python3
-"""Cases for mandatory/secret_decrypt.py. Run directly: python3 <this file>.
+"""Cases for agent_guard.checks.secret_decrypt. Run directly: python3 <this file>."""
 
-Held here rather than beside the check, because mandatory/ globs every *.py
-in it and would run this file as a check on each Bash call."""
-
-import importlib.util
+import pathlib
 import sys
 
-from hook_support import PLUGIN_ROOT
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-spec = importlib.util.spec_from_file_location(
-    "hook", PLUGIN_ROOT / "mandatory" / "secret_decrypt.py"
-)
-assert spec is not None
-assert spec.loader is not None
-hook = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(hook)
+from agent_guard.checks import secret_decrypt as hook
 
 MUST_BLOCK = [
     "age -d secrets.age",

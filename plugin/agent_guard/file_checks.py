@@ -3,53 +3,103 @@
 import json
 import os
 import re
+import signal
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 from . import _state
+from .checks import FILE_CHECKS, MANDATORY_CHECKS, TOOL_CHECKS
 from .config import sgconfig_for
 from .contract import (
     ASK_EXIT,
+    FINDING_LINE,
     SHELL_TOOLS,
     SILENT,
+    Decision,
     advised,
     asked,
     changed_lines,
     denied,
+    finding_line,
     git_base,
 )
-from .paths import MANDATORY_DIR, MANDATORY_TIMEOUT
-from .process import have, run, run_full, run_script
+from .paths import _PLUGIN_ROOT, CONFIG_DIR
+from .process import have, run, run_full
+
+# A check that outruns its bound is silence. A file check reads a whole file,
+# so it keeps a longer bound than a tool check.
+FILE_CHECK_TIMEOUT = 10
+CHECK_TIMEOUT = 5
+
+
+@contextmanager
+def _bounded(seconds):
+    """Raise TimeoutError once `seconds` pass, where the platform allows it.
+
+    Windows has no SIGALRM. There the process watchdog is the only backstop,
+    and a wedged check takes the run down with it instead of being skipped.
+    """
+    if seconds <= 0 or not hasattr(signal, "SIGALRM"):
+        yield
+        return
+
+    def fire(*_):
+        raise TimeoutError
+
+    previous = signal.signal(signal.SIGALRM, fire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def _installed():
+    """A repointed install runs no built-in check except the mandatory ones."""
+    return CONFIG_DIR == _PLUGIN_ROOT
+
+
+def _check_name(check):
+    return check.__module__.rsplit(".", 1)[-1]
+
+
+def _call(check, *args, timeout):
+    """The check's return, or a TimeoutError the caller logs and skips."""
+    with _bounded(timeout):
+        return check(*args)
 
 
 def run_checks(path, roots, cwd):
-    """Conventions ast-grep cannot reach. Tree-sitter discards whitespace, so
-    nothing about blank lines or vertical spacing is expressible as a rule; those
-    live here instead. A root's checks/ holds Python scripts, each given one file
-    path as its argument and printing findings on stdout in the shape the
-    ast-grep scan produces:
+    """Package file checks, then a root's checks/ scripts.
 
-      <2 spaces><file>:<line><2 spaces>[<rule-id>] <message>
-
-    A check decides for itself which files it has anything to say about, because
-    the extensions setting is one regex for the whole layer.
-
-    Run through this interpreter rather than their shebang: the executable bit
-    does not survive a clone onto Windows, and an interpreter the hook is already
-    running under is the one thing every machine is guaranteed to have."""
+    A script prints `  <file>:<line>  [<rule-id>] <message>` and runs in its own
+    interpreter, because the executable bit does not survive a clone."""
     out = []
+    try:
+        source = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        source = ""
+    for check in FILE_CHECKS if _installed() else ():
+        name = _check_name(check)
+        try:
+            lines = _call(check, source, path, timeout=FILE_CHECK_TIMEOUT)
+        except TimeoutError:
+            _state.log(2, "check", script=name, verdict="silent", reason="timeout")
+            continue
+        except Exception:
+            _state.log(2, "check", script=name, verdict="silent", reason="raised")
+            continue
+        if lines:
+            out.append("\n".join(lines))
     for root in roots:
         checks = root / "checks"
         if not checks.is_dir():
             continue
         for script in sorted(checks.glob("*.py")):
             # Only newlines: the leading two spaces are part of the finding format.
-            result = run_script(script, str(path), "", cwd, 10)
-            text = (
-                result[0]
-                if result
-                else run([sys.executable, str(script), str(path)], timeout=10, cwd=cwd)
-            ).strip("\r\n")
+            text = run([sys.executable, str(script), str(path)], timeout=10, cwd=cwd).strip("\r\n")
             if text:
                 out.append(text)
     return "\n".join(out)
@@ -64,8 +114,7 @@ def run_changeset_checks(base, roots, cwd):
     call and a PostToolUse check sees one file, so whatever reaches the branch by
     a route neither covers arrives unexamined. The diff is where that shows up.
 
-    Run through this interpreter rather than their shebang, for the reason
-    run_checks gives."""
+    A script runs in its own interpreter, for the reason run_checks gives."""
     out = []
     for root in roots:
         directory = root / "changeset_checks"
@@ -78,126 +127,126 @@ def run_changeset_checks(base, roots, cwd):
     return "\n\n".join(out)
 
 
-def run_mandatory(payload, cwd):
-    """PreToolUse scripts no config can switch off, for rules whose whole value
-    is that an agent cannot negotiate past them. Same contract as tool_checks/,
-    so a script changes tier by changing directory.
+def _failed(name):
+    """The text a raised check leaves when it printed nothing."""
+    return (
+        f"agent-guard: the check {name} failed to run, so the call it protects "
+        "is refused. Fix the check; Edit and Write are not gated by this hook."
+    )
 
-    A script that exits non-zero without saying why has crashed rather than
-    denied, and that is reported as a denial naming the file. The alternative is
-    silence, and a security check that vanishes when it breaks is worse than one
-    that is loudly in the way.
 
-    Shell tools only, which is what keeps that trade survivable: the tier exists
-    because a shell command reaches secrets that the Read and Edit permission
-    rules already gate, and leaving the file tools out of it means a broken
-    script can still be edited back into shape. Scope by tool, not a setting:
-    nothing here is negotiable for the calls it does cover."""
-    if not MANDATORY_DIR.is_dir():
-        return SILENT
-    if (payload.get("tool_name") or "") not in SHELL_TOOLS:
-        return SILENT
-    raw = json.dumps(payload, separators=(",", ":"))
-    tool = payload.get("tool_name") or ""
-
-    advice, denials = [], []
-    for script in sorted(MANDATORY_DIR.glob("*.py")):
-        out, code = run_script(script, tool, raw, cwd, MANDATORY_TIMEOUT) or run_full(
-            [sys.executable, str(script), tool],
-            timeout=MANDATORY_TIMEOUT,
-            cwd=cwd,
-            stdin=raw,
-        )
-        out = out.strip()
+def _merge(named, event):
+    """One decision from named check results. A denial outranks an ask."""
+    advice, asks, denials = [], [], []
+    for name, decision in named:
+        text = (decision.context or "").strip()
+        verdict = "silent"
+        if decision.permission == "deny":
+            verdict = "deny"
+        elif decision.permission == "ask":
+            verdict = "ask"
+        elif text:
+            verdict = "advise"
         _state.log(
             2,
-            "mandatory",
-            script=script.name,
-            verdict="deny" if code else "advise" if out else "silent",
-            reason=out.splitlines()[0] if out else None,
+            event,
+            script=name,
+            verdict=verdict,
+            reason=text.splitlines()[0] if text else None,
         )
-        if code:
-            denials.append(
-                out
-                or f"agent-guard: the mandatory check {script.name} failed to run, "
-                "so the call it protects is refused. Fix the script; Edit and "
-                "Write are not gated by this hook."
-            )
-        elif out:
-            advice.append(out)
-
+        if verdict == "deny":
+            denials.append(text or _failed(name))
+        elif verdict == "ask":
+            asks.append(text)
+        elif text:
+            advice.append(text)
     if denials:
-        return denied("\n\n".join(denials + advice), "\n\n".join(denials))
+        return denied("\n\n".join(denials + asks + advice), "\n\n".join(denials))
+    if asks:
+        return asked("\n\n".join(asks + advice), "\n\n".join(asks))
     if advice:
         return advised("\n\n".join(advice))
     return SILENT
 
 
+def run_mandatory(payload):
+    """Shell-tool checks no config can switch off.
+
+    A raised check is a denial naming it. Silence would hide a broken security
+    check, and file tools stay ungated so the check can still be edited."""
+    if (payload.get("tool_name") or "") not in SHELL_TOOLS:
+        return SILENT
+    named = []
+    for check in MANDATORY_CHECKS:
+        name = _check_name(check)
+        try:
+            named.append((name, _call(check, payload, timeout=CHECK_TIMEOUT)))
+        except TimeoutError:
+            _state.log(2, "mandatory", script=name, verdict="silent", reason="timeout")
+        except Exception:
+            named.append((name, denied(_failed(name), _failed(name))))
+    return _merge(named, "mandatory")
+
+
+def script_verdict(out, code):
+    """The decision a project script's stdout and exit code stand for.
+
+    Empty stdout is silence, whatever the exit code. Stdout with exit 0 advises.
+    Stdout with the ask exit code hands the call to the human. Any other
+    non-zero exit denies."""
+    text = out.strip()
+    if not text:
+        return Decision()
+    if code == 0:
+        return advised(text)
+    if code == ASK_EXIT:
+        return asked(text, text)
+    return denied(text, text)
+
+
 def check_tool(payload, roots, settings, cwd):
-    """The call the agent is about to make, before it makes it. A root's
-    tool_checks/ holds Python scripts, each given the tool name as its argument
-    and the whole hook payload on stdin, and answering in three ways:
+    """Package tool checks, then a root's tool_checks/ scripts.
 
-      empty stdout            the call is fine, say nothing
-      stdout, exit 0          advisory: the call proceeds, the text is context
-      stdout, exit 2          ask: the human decides, the text is the question
-      stdout, other non-zero  deny: the call never runs, the text is the reason
-
-    The ask tier is for a convention that holds until a human says otherwise.
-    Advice an agent may talk itself past is not the same rule, and a refusal a
-    human cannot lift is a different one; asking is how a check says the call is
-    theirs to allow. A crashing check exits 1, so it can only ever deny.
-
-    A denial is read by the model, not by a person, so a script's text earns its
-    keep by naming what to do instead. Scripts run through this interpreter
-    rather than their shebang, because the executable bit does not survive a
-    clone onto Windows."""
+    A script gets the tool name as its argument and the payload on stdin.
+    Empty stdout is silence, exit 0 advises, the ask exit hands the call to
+    the human, and any other non-zero exit denies."""
     if not settings.tool_checks:
         return SILENT
     raw = json.dumps(payload, separators=(",", ":"))
     tool = payload.get("tool_name") or ""
-
-    advice, asks, denials = [], [], []
+    named = []
+    for check in TOOL_CHECKS if _installed() else ():
+        name = _check_name(check)
+        try:
+            named.append((name, _call(check, payload, timeout=CHECK_TIMEOUT)))
+        except TimeoutError:
+            _state.log(2, "tool-check", script=name, verdict="silent", reason="timeout")
+        except Exception:
+            # A broken built-in degrades to silence rather than denying work.
+            _state.log(2, "tool-check", script=name, verdict="silent", reason="raised")
     for root in roots:
         checks = root / "tool_checks"
         if not checks.is_dir():
             continue
         for script in sorted(checks.glob("*.py")):
-            out, code = run_script(script, tool, raw, cwd, 5) or run_full(
+            out, code = run_full(
                 [sys.executable, str(script), tool],
-                timeout=5,
+                timeout=CHECK_TIMEOUT,
                 cwd=cwd,
                 stdin=raw,
             )
-            out = out.strip()
-            verdict = "silent"
-            if out:
-                verdict = "ask" if code == ASK_EXIT else "deny" if code else "advise"
-            _state.log(
-                2,
-                "tool-check",
-                script=script.name,
-                verdict=verdict,
-                reason=out.splitlines()[0] if out else None,
-            )
-            if not out:
-                continue
-            {"ask": asks, "deny": denials, "advise": advice}[verdict].append(out)
+            named.append((script.name, script_verdict(out, code)))
 
-    if denials:
-        _state.log(1, "decision", tool=tool, outcome="deny", checks=len(denials))
-        return denied("\n\n".join(denials + asks + advice), "\n\n".join(denials))
-    if asks:
-        _state.log(1, "decision", tool=tool, outcome="ask", checks=len(asks))
-        return asked("\n\n".join(asks + advice), "\n\n".join(asks))
-    if advice:
-        _state.log(1, "decision", tool=tool, outcome="advise", checks=len(advice))
-        return advised("\n\n".join(advice))
-    _state.log(1, "decision", tool=tool, outcome="allow")
-    return SILENT
+    merged = _merge(named, "tool-check")
+    _state.log(
+        1,
+        "decision",
+        tool=tool,
+        outcome=merged.permission if merged.context or merged.permission != "allow" else "allow",
+    )
+    return merged
 
 
-_FINDING_LINE = re.compile(r":(\d+)  \[")
 _INFO_FINDING = re.compile(r"  \[info:")
 _ERROR_FINDING = re.compile(r"  \[error:")
 _FINDING_RULE = re.compile(r"  \[([^\]]+)\]")
@@ -274,11 +323,10 @@ def scan_file(path, roots, cwd, layers):
                 rule = re.sub(r"-(typescript|tsx)$", "", hit.get("ruleId", ""))
                 line = hit.get("range", {}).get("start", {}).get("line", 0) + 1
                 findings.append(
-                    "  {}:{}  [{}{}] {}".format(
+                    finding_line(
                         hit.get("file", path),
                         line,
-                        _SG_SEVERITY.get(hit.get("severity"), "warn:"),
-                        rule,
+                        f"{_SG_SEVERITY.get(hit.get('severity'), 'warn:')}{rule}",
                         hit.get("message", ""),
                     )
                 )
@@ -307,7 +355,7 @@ def check_file(payload, roots, settings, cwd, layers):
                 path_findings = [
                     line
                     for line in path_findings
-                    if (match := _FINDING_LINE.search(line)) and int(match.group(1)) in added
+                    if (match := FINDING_LINE.search(line)) and int(match.group(1)) in added
                 ]
         findings.extend(path_findings)
 

@@ -12,11 +12,11 @@ purely to shorten the path. A build or a test runner genuinely needs its working
 directory and is left alone.
 """
 
-import json
 import os
 import re
 import shlex
-import sys
+
+from ..contract import Decision, denied
 
 # Commands that move the shell, PowerShell's spellings of it included.
 CD_NAMES = {"cd", "chdir", "set-location", "sl", "pushd", "push-location"}
@@ -289,49 +289,37 @@ def relative_operands(parsed, directory):
     return "", []
 
 
-def main():
-    if (sys.argv[1] if len(sys.argv) > 1 else "") != "Bash":
-        return 0
-    try:
-        payload = json.loads(sys.stdin.read() or "{}")
-    except ValueError:
-        return 0
-    command = str((payload.get("tool_input") or {}).get("command") or "")
+def check(payload):
+    """The decision for one shell command, or silence for any other tool."""
+    if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
+        return Decision()
+    tool_input = payload.get("tool_input")
+    command = str((tool_input or {}).get("command") or "") if isinstance(tool_input, dict) else ""
     if not command.strip():
-        return 0
+        return Decision()
 
     parsed = commands(command)
     directory = leading_cd(parsed)
     if directory is None:
-        return 0
+        return Decision()
 
     name, hits = relative_operands(parsed, directory)
     if name == "git":
-        print(
+        message = (
             "agent-guard: git after a cd into another directory always stops for "
             "manual approval, because git runs that directory's hooks. Pass the "
             f"directory to git instead: `git -C {directory} ...`."
         )
-        return 1
+        return denied(message, message)
     if not hits:
-        return 0
+        return Decision()
 
     example = os.path.join(directory, hits[0])
-    print(
+    message = (
         f"agent-guard: `{hits[0]}` is relative to the `cd`, and the permission "
         "analyzer resolves paths against the session's working directory instead. "
         "With Read() deny rules configured it cannot clear an unresolved path, so "
         "this stops and waits for a human.\n\n"
         f"Drop the cd and write the path out: `{name} ... {example}`."
     )
-    return 1
-
-
-if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except SystemExit:
-        raise
-    except BaseException:
-        # A broken check degrades to silence rather than denying real work.
-        sys.exit(0)
+    return denied(message, message)

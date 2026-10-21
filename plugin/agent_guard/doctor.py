@@ -3,9 +3,10 @@
 import shutil
 
 from . import _state
+from .checks import MANDATORY_CHECKS
 from .config import Settings, discover_roots, load_config, sgconfig_for
 from .external import EXTERNAL_TOOLS, missing_launcher_notes
-from .paths import CONFIG_NAME, MANDATORY_DIR
+from .paths import CONFIG_NAME
 from .process import have, python_tool_problem
 
 
@@ -44,13 +45,13 @@ def doctor(cwd):
         print(f"      checks     : {checks}")
         print(f"      tool_checks: {tool_checks}")
         print(f"      changeset_checks: {diff_checks}")
-    mandatory = len(list(MANDATORY_DIR.glob("*.py"))) if MANDATORY_DIR.is_dir() else 0
-    print(f"  mandatory  : {mandatory} ({MANDATORY_DIR})")
+    names = ", ".join(check.__module__.rsplit(".", 1)[-1] for check in MANDATORY_CHECKS)
+    print(f"  mandatory  : {names}")
     for tool in ("ast-grep", "fallow", "git", "rg"):
         print(f"  {tool:<10} : {shutil.which(tool) or 'not installed'}")
     print()
     print(f"  tool_checks      : {'on' if settings.tool_checks else 'off'}")
-    print("  mandatory/       : always on; no config key or root reaches it")
+    print("  mandatory checks : always on; no config key or root reaches them")
     if not have("ast-grep"):
         print("  ast-grep missing -> per-file rules skipped (checks/ still run)")
     if not have("fallow"):

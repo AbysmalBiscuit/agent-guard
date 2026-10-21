@@ -14,7 +14,14 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-SHELL_TOOLS = {"Bash", "PowerShell", "exec_command", "shell_command", "shell"}
+# The plugin root is the parent of scripts/, and it is already on the path
+# when the hook launches this file. A direct run adds it here.
+_PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+if str(_PLUGIN_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PLUGIN_ROOT))
+
+from agent_guard.contract import SHELL_TOOLS  # noqa: E402
+
 EVENT_STAGES = {
     "PreToolUse": "attempted",
     "PostToolUse": "result",

@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""Cases for tool_checks/cd_relative_path.py. Run directly: python3 <this file>.
-
-Held here rather than beside the check, because tool_checks/ globs every *.py
-in it and would run this file as a check on each Bash call.
+"""Cases for agent_guard.checks.cd_relative_path. Run directly: python3 <this file>.
 
 Four layers, each answering a question the layer above cannot:
 
@@ -14,18 +11,18 @@ Four layers, each answering a question the layer above cannot:
   mutation   the corpus has teeth: breaking the check must break the suite
 """
 
-import contextlib
-import io
-import json
 import ntpath
 import os
+import pathlib
 import random
 import sys
 import types
 
-from hook_support import PLUGIN_ROOT
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-CHECK = PLUGIN_ROOT / "tool_checks" / "cd_relative_path.py"
+from agent_guard.checks import cd_relative_path as check_module
+
+CHECK = pathlib.Path(check_module.__file__)
 SOURCE = CHECK.read_text(encoding="utf-8")
 
 POSIX_DIR = "/home/lev/Git/lev/devkit"
@@ -35,28 +32,18 @@ WIN_DIR = "C:\\Users\\Lev\\proj"
 
 def load(source=None):
     """The check as an importable module, optionally from mutated source."""
+    if source is None:
+        return check_module
     module = types.ModuleType("check_under_test")
     module.__file__ = str(CHECK)
-    exec(compile(source or SOURCE, str(CHECK), "exec"), module.__dict__)
+    exec(compile(source, str(CHECK), "exec"), module.__dict__)
     return module
 
 
 def verdict(module, command):
-    """Run the real entry point and return ("block" | "pass", printed advice).
-
-    Going through main() rather than the helpers keeps the payload parsing and
-    the exit codes in the test, which is where the hook contract lives.
-    """
-    argv, stdin = sys.argv, sys.stdin
-    sys.argv = ["cd_relative_path.py", "Bash"]
-    sys.stdin = io.StringIO(json.dumps({"tool_input": {"command": command}}))
-    printed = io.StringIO()
-    try:
-        with contextlib.redirect_stdout(printed):
-            code = module.main()
-    finally:
-        sys.argv, sys.stdin = argv, stdin
-    return ("block" if code == 1 else "pass"), printed.getvalue()
+    """Run the check function and return ("block" | "pass", the reason)."""
+    decision = module.check({"tool_name": "Bash", "tool_input": {"command": command}})
+    return ("block" if decision.permission == "deny" else "pass"), decision.context
 
 
 MUST_BLOCK = [

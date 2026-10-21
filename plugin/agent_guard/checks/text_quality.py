@@ -10,9 +10,9 @@ the human's to change.
 
 # ruff: noqa: RUF001
 
-import json
-import sys
 import unicodedata
+
+from ..contract import SHELL_TOOLS, Decision, advised, asked, denied
 
 
 class Explain(str):
@@ -147,17 +147,13 @@ agent-guard: the call runs, but unslop flags this text. Reword it where the advi
 
 {findings}"""
 
-# stdout with this exit code asks; any other non-zero denies.
-ASK_EXIT = 2
-
 # Loudest first: a call tripping several tiers is judged by the first it trips.
+# The second field builds the decision the tier returns.
 TIERS = (
-    (REFUSE, 1, REFUSE_MESSAGE),
-    (ASK, ASK_EXIT, ASK_MESSAGE),
-    (WARN, 0, WARN_MESSAGE),
+    (REFUSE, denied, REFUSE_MESSAGE),
+    (ASK, asked, ASK_MESSAGE),
+    (WARN, advised, WARN_MESSAGE),
 )
-
-SHELL_TOOLS = {"Bash", "PowerShell", "exec_command", "shell_command", "shell"}
 
 
 def added_lines(patch):
@@ -232,35 +228,24 @@ def report(text, rules):
 
 
 def judge(text):
-    """The message and exit code of the loudest tier `text` trips."""
-    for rules, code, message in TIERS:
+    """The decision of the loudest tier `text` trips, or silence."""
+    for rules, decide, message in TIERS:
         findings = report(text, rules)
         if findings:
-            return message.format(findings=findings), code
-    return "", 0
+            body = message.format(findings=findings)
+            return decide(body, body)
+    return Decision()
 
 
-def main():
-    tool = sys.argv[1] if len(sys.argv) > 1 else ""
-    try:
-        payload = json.loads(sys.stdin.read() or "{}")
-    except ValueError:
-        return 0
+def check(payload):
+    """The decision for one tool call, or silence when the call adds nothing."""
+    if not isinstance(payload, dict):
+        return Decision()
     tool_input = payload.get("tool_input")
-    text = written_text(tool, tool_input if isinstance(tool_input, dict) else {})
+    text = written_text(
+        payload.get("tool_name") or "",
+        tool_input if isinstance(tool_input, dict) else {},
+    )
     if not text:
-        return 0
-    message, code = judge(text)
-    if message:
-        print(message)
-    return code
-
-
-if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except SystemExit:
-        raise
-    except BaseException:
-        # A broken check degrades to silence rather than denying real work.
-        sys.exit(0)
+        return Decision()
+    return judge(text)

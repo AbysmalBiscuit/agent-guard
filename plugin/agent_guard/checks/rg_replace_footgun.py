@@ -13,10 +13,10 @@ letter, but only as an argument to an `rg` command. The spaced forms
 inside a quoted string (e.g. a commit message) is ignored.
 """
 
-import json
 import re
 import shlex
-import sys
+
+from ..contract import Decision, denied
 
 BAD_CLUSTER = re.compile(r"^-[a-zA-Z]*r[a-zA-Z]*$")
 # Pipes, lists, subshells, groups, redirections and process substitutions all
@@ -116,22 +116,20 @@ def regex_fallback(cmd):
     return None
 
 
-def main():
-    if (sys.argv[1] if len(sys.argv) > 1 else "") != "Bash":
-        return 0
-    try:
-        payload = json.loads(sys.stdin.read() or "{}")
-    except ValueError:
-        return 0
-    cmd = (payload.get("tool_input") or {}).get("command") or ""
+def check(payload):
+    """The decision for one shell command, or silence for any other tool."""
+    if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
+        return Decision()
+    tool_input = payload.get("tool_input")
+    cmd = (tool_input or {}).get("command") or "" if isinstance(tool_input, dict) else ""
     if not cmd:
-        return 0
+        return Decision()
 
     hit = bad_flag(cmd)
     if not hit:
-        return 0
+        return Decision()
 
-    print(
+    message = (
         f"rg recurses by default and has no recursive flag. In '{hit}', -r is "
         "--replace: it swallows the remaining letters as replacement text and "
         "silently prints matches with that text substituted instead of applying "
@@ -140,14 +138,4 @@ def main():
         "-c (count). For a real replacement use the spaced form: "
         "rg -r 'text' PATTERN or rg --replace 'text' PATTERN."
     )
-    return 1
-
-
-if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except SystemExit:
-        raise
-    except BaseException:
-        # A broken check degrades to silence rather than denying real work.
-        sys.exit(0)
+    return denied(message, message)

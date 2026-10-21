@@ -23,11 +23,11 @@ filesystem, so it fires on -r and on a file operand.
 The `rg -r<flags>` footgun has a hook of its own and is deliberately absent here.
 """
 
-import json
 import re
 import shlex
 import shutil
-import sys
+
+from ..contract import Decision, denied
 
 # Pipes, lists, subshells, redirections and process substitutions all start a
 # fresh command position, so `<(fd .)` is read exactly like `| fd .`.
@@ -261,16 +261,14 @@ def git_stash(seg):
     )
 
 
-def main():
-    if (sys.argv[1] if len(sys.argv) > 1 else "") != "Bash":
-        return 0
-    try:
-        payload = json.loads(sys.stdin.read() or "{}")
-    except ValueError:
-        return 0
-    command = str((payload.get("tool_input") or {}).get("command") or "")
+def check(payload):
+    """The decision for one shell command, or silence for any other tool."""
+    if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
+        return Decision()
+    tool_input = payload.get("tool_input")
+    command = str((tool_input or {}).get("command") or "") if isinstance(tool_input, dict) else ""
     if not command.strip():
-        return 0
+        return Decision()
 
     reasons, previous = [], None
     for seg in segments(command):
@@ -282,19 +280,10 @@ def main():
         previous = seg
 
     if not reasons:
-        return 0
+        return Decision()
     # dict.fromkeys rather than a set: one command hitting the same rule twice
     # should say it once, in the order the rules fired.
-    print("agent-guard: this command is ruled out by AGENTS.md.\n")
-    print("\n\n".join(dict.fromkeys(reasons)))
-    return 1
-
-
-if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except SystemExit:
-        raise
-    except BaseException:
-        # A broken check degrades to silence rather than denying real work.
-        sys.exit(0)
+    message = "agent-guard: this command is ruled out by AGENTS.md.\n\n" + "\n\n".join(
+        dict.fromkeys(reasons)
+    )
+    return denied(message, message)

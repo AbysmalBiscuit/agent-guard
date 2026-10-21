@@ -7,8 +7,8 @@ from pathlib import Path
 
 _package = Path(__file__).resolve().parent
 _root = _package.parent
-# Checks import modules from plugin/scripts, which stays ahead of the
-# plugin root so agent_guard resolves as a package.
+# scripts/ stays ahead of the plugin root so a helper import resolves, and
+# agent_guard still resolves as a package from the plugin root.
 sys.path[:1] = [str(_root / "scripts"), str(_root)]
 
 from agent_guard import _state  # noqa: E402

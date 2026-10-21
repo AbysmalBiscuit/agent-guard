@@ -25,9 +25,10 @@ import ast
 import io
 import os
 import re
-import sys
 import tokenize
 from typing import NamedTuple
+
+from ..contract import finding_line
 
 # One id per thing measured, and a severity prefix for how far past the line it
 # went. The runner heads each tier separately and spends its budget on the
@@ -372,29 +373,15 @@ def findings(path, source):
 
 
 def report(path, line, rule, message, **fields):
-    return f"  {path}:{line}  [{rule}] {message.format(**fields)}"
+    return finding_line(path, line, rule, message.format(**fields))
 
 
-def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else ""
-    # The extensions setting is one regex for the whole checks/ layer, so each
-    # check narrows to the files it has anything to say about.
-    if not path.lower().endswith(SUFFIXES):
-        return
+def check(source, path):
+    """Finding lines for one file, empty when the file is out of scope."""
+    if not str(path).lower().endswith(SUFFIXES):
+        return []
     try:
-        with open(path, encoding="utf-8", errors="replace") as handle:
-            source = handle.read()
-    except OSError:
-        return
-    try:
-        out = findings(path, source)
+        return findings(path, source)
     except Exception:
-        # A file this cannot read is a file it has nothing to say about, and an
-        # agent stopped by the guard's own crash learns to distrust it.
-        return
-    for finding in out:
-        print(finding)
-
-
-if __name__ == "__main__":
-    main()
+        # A file this cannot read is a file it has nothing to say about.
+        return []

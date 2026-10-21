@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cases for checks/comment_length.py. Run directly: python3 <this file>.
+"""Cases for agent_guard.checks.comment_length. Run directly: python3 <this file>.
 
 The cases that matter separate a paragraph from a single sentence that wrapped,
 since a check firing on the second teaches agents to skim past the first. Two
@@ -12,24 +12,16 @@ import os
 import pathlib
 import sys
 import tempfile
-import types
 
-from hook_support import PLUGIN_ROOT, run_hook
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-CHECK = PLUGIN_ROOT / "checks" / "comment_length.py"
+from agent_guard.checks import comment_length as checker
+from hook_support import run_hook
+
+CHECKER = checker
 
 for _key in [k for k in os.environ if k.startswith("AGENT_GUARD_")]:
     del os.environ[_key]
-
-
-def load():
-    module = types.ModuleType("check_under_test")
-    module.__file__ = str(CHECK)
-    exec(compile(CHECK.read_text(encoding="utf-8"), str(CHECK), "exec"), module.__dict__)
-    return module
-
-
-CHECKER = load()
 LONG_SENTENCE = (
     "// The scheduler reads the stored value synchronously on the first render "
     "rather than waiting for an effect, because an effect would paint the empty "
@@ -39,7 +31,7 @@ LONG_SENTENCE = (
 
 
 def report(name, source):
-    return CHECKER.findings(name, source)
+    return CHECKER.check(source, name)
 
 
 def hook(target, base):

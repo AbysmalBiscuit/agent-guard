@@ -16,7 +16,8 @@ out of scope.
 
 import itertools
 import re
-import sys
+
+from ..contract import finding_line
 
 RULE = "md-hard-wrap"
 MESSAGE = (
@@ -133,17 +134,11 @@ def wrap_column(texts, listy=False):
     return width
 
 
-def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else ""
-    # The extensions setting is one regex for the whole checks/ layer, so each
-    # check narrows to the files it has anything to say about.
-    if not path.lower().endswith(SUFFIXES):
-        return
-    try:
-        with open(path, encoding="utf-8", errors="replace") as handle:
-            lines = handle.read().splitlines()
-    except OSError:
-        return
+def check(source, path):
+    """Finding lines for one markdown file, empty when the file is out of scope."""
+    if not str(path).lower().endswith(SUFFIXES):
+        return []
+    lines = source.splitlines()
     # YAML front matter is blanked rather than dropped, so reported line numbers
     # still match the file the agent is looking at.
     if lines[:1] == ["---"] and "---" in lines[1:]:
@@ -153,10 +148,5 @@ def main():
     for start, texts, listy in paragraphs(lines):
         width = wrap_column(texts, listy)
         if width is not None:
-            findings.append(f"  {path}:{start}  [{RULE}] {MESSAGE.format(width=width)}")
-    for finding in findings[:MAX_REPORTED]:
-        print(finding)
-
-
-if __name__ == "__main__":
-    main()
+            findings.append(finding_line(path, start, RULE, MESSAGE.format(width=width)))
+    return findings[:MAX_REPORTED]

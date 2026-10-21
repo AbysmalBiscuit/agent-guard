@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cases for tool_checks/text_quality.py.
+"""Cases for agent_guard.checks.text_quality.
 
 Which half of a call is read matters most: the text a call adds is checked and
 the text it removes is not, or the rule would refuse the very edit that takes
@@ -8,45 +8,31 @@ through the hook and reach the harness as the decision it stands for. Every
 character under test is written as an escape, so this file is ASCII.
 """
 
-import importlib.util
 import json
-import subprocess
+import pathlib
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from hook_support import PLUGIN_ROOT, run_hook
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-CHECK = PLUGIN_ROOT / "tool_checks" / "text_quality.py"
+from agent_guard.checks import text_quality as check_module
+from agent_guard.contract import ASK_EXIT
+from hook_support import run_hook
 
 EM_DASH = "\u2014"
 EN_DASH = "\u2013"
 INTERPUNCT = "\u00b7"
 
-ASK_EXIT = 2
-
-
-def load_check():
-    """The check as a module, for its rules and its judge."""
-    spec = importlib.util.spec_from_file_location("check_under_test", CHECK)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+_PERMISSION_CODE = {"deny": 1, "ask": ASK_EXIT, "allow": 0}
 
 
 def check(tool, tool_input):
-    payload = {"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": tool_input}
-    result = subprocess.run(
-        [sys.executable, str(CHECK), tool],
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        timeout=15,
-        check=False,
+    verdict = check_module.check(
+        {"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": tool_input}
     )
-    return result.stdout.strip(), result.returncode
+    return verdict.context.strip(), _PERMISSION_CODE[verdict.permission]
 
 
 class RefusedCharacters(unittest.TestCase):
@@ -135,13 +121,12 @@ class TheShippedRules(unittest.TestCase):
     every rule is exercised rather than a chosen few."""
 
     def assert_tier(self, rules, expected_code):
-        module = load_check()
-        for key in rules(module):
-            with self.subTest(rule=module.label(key)):
+        for key in rules(check_module):
+            with self.subTest(rule=check_module.label(key)):
                 out, code = check("Write", {"content": f"a {key} b"})
 
                 self.assertEqual(code, expected_code)
-                self.assertIn(module.label(key), out)
+                self.assertIn(check_module.label(key), out)
 
     def test_every_refused_rule_is_denied_by_name(self):
         self.assert_tier(lambda module: module.REFUSE, 1)
@@ -155,41 +140,35 @@ class TheShippedRules(unittest.TestCase):
 
 class RuleValues(unittest.TestCase):
     def test_a_plain_value_is_the_swap_the_agent_is_told_to_make(self):
-        module = load_check()
-        module.WARN["utilize"] = "use"
+        with patch.dict(check_module.WARN, {"utilize": "use"}):
+            verdict = check_module.judge("we utilize it")
 
-        message, code = module.judge("we utilize it")
-
-        self.assertEqual(code, 0)
-        self.assertIn('"utilize"', message)
-        self.assertIn("Write `use` instead.", message)
+        self.assertEqual(verdict.permission, "allow")
+        self.assertIn('"utilize"', verdict.context)
+        self.assertIn("Write `use` instead.", verdict.context)
 
     def test_matching_ignores_case(self):
-        module = load_check()
-        module.WARN["frobnicate"] = "poke"
+        with patch.dict(check_module.WARN, {"frobnicate": "poke"}):
+            verdict = check_module.judge("Frobnicate it first")
 
-        message, code = module.judge("Frobnicate it first")
-
-        self.assertEqual(code, 0)
-        self.assertIn("Write `poke` instead.", message)
-        self.assertIn("Frobnicate it first", message)
+        self.assertEqual(verdict.permission, "allow")
+        self.assertIn("Write `poke` instead.", verdict.context)
+        self.assertIn("Frobnicate it first", verdict.context)
 
     def test_an_empty_value_says_to_delete(self):
-        module = load_check()
-        module.WARN["very"] = ""
+        with patch.dict(check_module.WARN, {"very": ""}):
+            verdict = check_module.judge("a very big deal")
 
-        message, _ = module.judge("a very big deal")
-
-        self.assertIn("Delete it.", message)
+        self.assertIn("Delete it.", verdict.context)
 
     def test_an_explained_value_is_read_as_written(self):
-        module = load_check()
-        module.WARN["utilize"] = module.Explain("Say what it does instead.")
+        with patch.dict(
+            check_module.WARN, {"utilize": check_module.Explain("Say what it does instead.")}
+        ):
+            verdict = check_module.judge("we utilize it")
 
-        message, _ = module.judge("we utilize it")
-
-        self.assertIn("Say what it does instead.", message)
-        self.assertNotIn("Write `", message)
+        self.assertIn("Say what it does instead.", verdict.context)
+        self.assertNotIn("Write `", verdict.context)
 
 
 class ThroughTheHook(unittest.TestCase):
@@ -230,7 +209,7 @@ class ThroughTheHook(unittest.TestCase):
         self.assertIn("interpunct", out["additionalContext"])
 
     def test_a_warning_lets_the_call_run_and_reaches_the_agent(self):
-        word = next(iter(load_check().WARN))
+        word = next(iter(check_module.WARN))
         out = self.decision("Write", {"file_path": "a.md", "content": f"x {word} y\n"})
 
         self.assertNotIn("permissionDecision", out)
