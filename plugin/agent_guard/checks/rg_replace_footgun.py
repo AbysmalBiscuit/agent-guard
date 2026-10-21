@@ -14,105 +14,21 @@ inside a quoted string (e.g. a commit message) is ignored.
 """
 
 import re
-import shlex
 
 from ..contract import Decision, denied
+from ..shell_commands import read_commands
 
 BAD_CLUSTER = re.compile(r"^-[a-zA-Z]*r[a-zA-Z]*$")
-# Pipes, lists, subshells, groups, redirections and process substitutions all
-# start a fresh command position: `<(rg …)` must arm the check just like `| rg`.
-OPERATORS = re.compile(r"^[|&;()<>{}\n]+$")
-# Wrappers that keep the next word in command position.
-WRAPPERS = {
-    "sudo",
-    "command",
-    "builtin",
-    "exec",
-    "env",
-    "time",
-    "timeout",
-    "nice",
-    "ionice",
-    "stdbuf",
-    "nohup",
-    "xargs",
-    "watch",
-    "noglob",
-    "then",
-    "do",
-    "else",
-    "elif",
-    "if",
-    "while",
-    "until",
-    "!",
-}
-SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
-DURATION = re.compile(r"^\d+[smhd]?$")
 
 
-def tokenize(cmd):
-    lexer = shlex.shlex(cmd, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    return list(lexer)
-
-
-def bad_flag(cmd, depth=0):
+def bad_flag(cmd):
     """Return the offending flag cluster in `cmd`, or None."""
-    if depth > 2:
-        return None
-    try:
-        toks = tokenize(cmd)
-    except ValueError:
-        return regex_fallback(cmd)
-
-    in_rg = False
-    cmd_pos = True
-    shell = None
-
-    for i, t in enumerate(toks):
-        if OPERATORS.match(t):
-            in_rg, cmd_pos, shell = False, True, None
+    for command in read_commands(cmd):
+        if command.name != "rg":
             continue
-
-        if cmd_pos:
-            # Env assignments, wrapper options and their operands (timeout 10,
-            # nice -n 5) all leave us still looking for the real command word.
-            if re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", t):
-                continue
-            if t in WRAPPERS:
-                continue
-            if t.startswith("-") or DURATION.match(t):
-                continue
-
-            cmd_pos = False
-            name = t.rsplit("/", 1)[-1]
-            in_rg = name == "rg"
-            shell = name if name in SHELLS else None
-            continue
-
-        # `bash -c '<nested command>'` — scan the nested string too.
-        if shell and t == "-c" and i + 1 < len(toks):
-            hit = bad_flag(toks[i + 1], depth + 1)
-            if hit:
-                return hit
-            continue
-
-        if in_rg and len(t) >= 3 and BAD_CLUSTER.match(t):
-            return t
-
-    return None
-
-
-def regex_fallback(cmd):
-    """Unbalanced quotes etc. — scan each shell segment for `rg ... -r<flags>`."""
-    for seg in re.split(r"[|;&\n(){}]+", cmd):
-        m = re.search(r"(?:^|\s|/)rg\s", seg)
-        if not m:
-            continue
-        for t in seg[m.end() :].split():
-            if len(t) >= 3 and BAD_CLUSTER.match(t):
-                return t
+        for arg in command.args:
+            if len(arg) >= 3 and BAD_CLUSTER.match(arg):
+                return arg
     return None
 
 
