@@ -166,7 +166,7 @@ timeout = 20
 | `pyscn_extensions` | `\.py$` | file types pyscn reads |
 | `timeout` | `20` | seconds one analysis may run |
 
-complexipy, lizard, vulture, and pyscn run through `uvx` at the versions pinned in `plugin/agent_guard`, or from the tree's own `.venv` when it provides them. jscpd runs through `bunx` at its pinned version. Nothing is installed into the project. A missing runner, a missing tool, or a timeout leaves the audit silent. `doctor` lists which analyses are on, where each setting came from, and that silence.
+complexipy, lizard, vulture and pyscn run through `uvx`, and jscpd through `bunx`, at the versions in `plugin/agent_guard/external.py`. A tree's own `.venv` supplies a tool when it has one. Nothing is installed into the project. A missing launcher, a missing tool, or a timeout leaves the audit silent. `doctor` lists which analyses are on, where each setting came from, and that silence.
 
 A clone group is reported when one of its instances sits on a line the branch added, and each fingerprint once per session. A cycle is reported when the base revision did not have it.
 

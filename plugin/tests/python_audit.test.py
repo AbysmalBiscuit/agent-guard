@@ -157,11 +157,32 @@ def commit(project, name, text):
 
 
 def doctor_without_uv(_project, checkout):
-    """doctor in a fresh tree, with uv and the analysis tools off PATH."""
+    """doctor in a fresh tree, with the uvx launcher missing.
+
+    The launchers seam points at a path that is not a file, so doctor uses
+    the same rule the runtime uses."""
     with tempfile.TemporaryDirectory() as directory:
         fresh = pathlib.Path(directory) / "project"
         fresh.mkdir()
-        return doctor(fresh, checkout, env_extra={"PATH": "/usr/bin:/bin"})
+        missing = fresh / "no-uvx"
+        return doctor(
+            fresh,
+            checkout,
+            env_extra={"AGENT_GUARD_LAUNCHERS": f"uvx={missing}"},
+        )
+
+
+def doctor_without_bunx(_project, checkout):
+    """doctor in a fresh tree, with the bunx launcher missing."""
+    with tempfile.TemporaryDirectory() as directory:
+        fresh = pathlib.Path(directory) / "project"
+        fresh.mkdir()
+        missing = fresh / "no-bunx"
+        return doctor(
+            fresh,
+            checkout,
+            env_extra={"AGENT_GUARD_LAUNCHERS": f"bunx={missing}"},
+        )
 
 
 def hook_env(project, checkout=None, env_extra=None, config_dir=None, state_home=None):
@@ -381,6 +402,9 @@ class PythonAuditTests(unittest.TestCase):
         without_uv = doctor_without_uv(project, checkout)
         self.assertIn("uv is not on PATH", without_uv)
         self.assertIn("stays silent", without_uv)
+        bunx_checkout = checkout + "jscpd = true\n"
+        without_bunx = doctor_without_bunx(project, bunx_checkout)
+        self.assertIn("bunx is not on PATH, so jscpd stays silent", without_bunx)
 
     def test_a_blank_extension_and_a_failing_tool_stay_silent(self):
         """An empty extension matches nothing. A tool that exits non-zero on a
