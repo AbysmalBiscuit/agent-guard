@@ -518,13 +518,53 @@ def _on_added_line(instance, line_count, added):
     return any(line in lines for line in range(start, start + (line_count or 1)))
 
 
+_IMPORT_START = re.compile(r"(import|from)[\s{\"'*]")
+_COMMENT = re.compile(r"(#|//|/\*|\*)")
+
+
+def _import_line_numbers(lines):
+    """Line numbers that are blank, a comment, or part of an import statement.
+
+    An import continues while a bracket stays open or a line ends in `\\`, so
+    a parenthesized Python import and a multi-line JS import both count."""
+    numbers = set()
+    depth = 0
+    continued = False
+    for number, line in enumerate(lines, start=1):
+        text = line.strip()
+        inside = depth or continued
+        if not inside and text and not _COMMENT.match(text) and not _IMPORT_START.match(text):
+            continue
+        numbers.add(number)
+        if inside or _IMPORT_START.match(text):
+            depth += text.count("(") + text.count("{") - text.count(")") - text.count("}")
+            depth = max(0, depth)
+            continued = text.endswith("\\")
+    return numbers
+
+
+def _only_imports(loc, cwd):
+    """True when this clone site holds nothing but import statements."""
+    start = (loc.get("startLoc") or {}).get("line") or loc.get("start")
+    end = (loc.get("endLoc") or {}).get("line") or loc.get("end")
+    if not start or not end:
+        return False
+    try:
+        text = (cwd / (loc.get("name") or "")).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return set(range(start, end + 1)) <= _import_line_numbers(text.splitlines())
+
+
 def python_clone_groups(data, cwd, added):
     """jscpd's pair list, grouped the way fallow groups a clone.
 
-    Sites are collected by fragment first. A group stays only when one of its
-    instances sits on a line the branch added."""
+    A pair whose sites hold only imports is no clone, as in fallow. A group
+    stays only when one of its instances sits on a line the branch added."""
     groups = {}
     for pair in data.get("duplicates") or []:
+        if all(_only_imports(pair.get(side) or {}, cwd) for side in ("firstFile", "secondFile")):
+            continue
         fragment = pair.get("fragment") or ""
         fingerprint = hashlib.sha1(fragment.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
         instances = []

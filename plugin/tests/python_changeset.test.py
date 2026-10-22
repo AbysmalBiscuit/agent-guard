@@ -39,6 +39,22 @@ OLD_CLONE = textwrap.dedent(
     """
 )
 
+IMPORTS = textwrap.dedent(
+    """\
+    import json
+    import os
+    import subprocess
+
+    # The shared helpers.
+    from hook_support import (
+        PLUGIN_ROOT,
+        requires_pinned,
+        run_hook,
+    )
+    from pathlib import Path
+    """
+)
+
 
 def commit_all(root, message):
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
@@ -278,6 +294,51 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertNotIn("pkg/also.py", report)
         self.assertNotIn("pkg/old.py", report)
         self.assertEqual(second.stdout, "")
+
+    @requires_pinned("jscpd")
+    def test_jscpd_leaves_a_shared_import_block_out_of_the_report(self):
+        """Two added files that share only an import block, with comments and
+        a parenthesized import, give no clone finding."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            pkg = root / "pkg"
+            pkg.mkdir()
+            (pkg / "__init__.py").write_text("", encoding="utf-8")
+            commit_all(root, "base")
+            (pkg / "first.py").write_text(IMPORTS + "\nFIRST = 1\n", encoding="utf-8")
+            (pkg / "second.py").write_text(IMPORTS + "\nSECOND = 2\n", encoding="utf-8")
+            enable(root, JSCPD)
+
+            result = stop_hook(root, session="imports")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    @requires_pinned("jscpd")
+    def test_jscpd_reports_a_clone_that_runs_past_a_shared_import_block(self):
+        """A clone that starts in a shared import block and continues into a
+        duplicated function body is still reported."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            pkg = root / "pkg"
+            pkg.mkdir()
+            (pkg / "__init__.py").write_text("", encoding="utf-8")
+            commit_all(root, "base")
+            (pkg / "first.py").write_text(IMPORTS + "\n\n" + CLONE, encoding="utf-8")
+            (pkg / "second.py").write_text(IMPORTS + "\n\n" + CLONE, encoding="utf-8")
+            enable(root, JSCPD)
+
+            result = stop_hook(root, session="imports-and-body")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+        self.assertIn("pkg/first.py:", report)
+        self.assertIn("pkg/second.py:", report)
 
     @requires_pinned("jscpd")
     def test_jscpd_reports_a_typescript_clone_on_an_added_line(self):
