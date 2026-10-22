@@ -341,6 +341,53 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertIn("pkg/second.py:", report)
 
     @requires_pinned("jscpd")
+    def test_jscpd_reports_starred_assignments_after_a_shared_import_block(self):
+        """A starred assignment such as `*head, tail = items` is code, not a
+        comment, so a clone of imports and starred assignments is reported."""
+        starred = "".join(f"*head{n}, tail{n} = items[{n}:]\n" for n in range(8))
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            pkg = root / "pkg"
+            pkg.mkdir()
+            (pkg / "__init__.py").write_text("", encoding="utf-8")
+            commit_all(root, "base")
+            body = IMPORTS + starred
+            (pkg / "first.py").write_text(body, encoding="utf-8")
+            (pkg / "second.py").write_text(body, encoding="utf-8")
+            enable(root, JSCPD)
+
+            result = stop_hook(root, session="imports-and-starred")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+
+    @requires_pinned("jscpd")
+    def test_jscpd_reports_a_clone_after_a_bracket_in_an_import_comment(self):
+        """A bracket inside a comment on an import line opens no continuation,
+        so the duplicated function after it is reported."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            pkg = root / "pkg"
+            pkg.mkdir()
+            (pkg / "__init__.py").write_text("", encoding="utf-8")
+            commit_all(root, "base")
+            body = "import json  # (\nimport os\n\n\n" + CLONE
+            (pkg / "first.py").write_text(body, encoding="utf-8")
+            (pkg / "second.py").write_text(body, encoding="utf-8")
+            enable(root, JSCPD)
+
+            result = stop_hook(root, session="import-comment-bracket")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+
+    @requires_pinned("jscpd")
     def test_jscpd_reports_a_typescript_clone_on_an_added_line(self):
         """`\\.tsx?$` reports a clone across `.ts` and `.tsx`, naming both paths.
 

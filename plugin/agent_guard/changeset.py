@@ -519,27 +519,55 @@ def _on_added_line(instance, line_count, added):
 
 
 _IMPORT_START = re.compile(r"(import|from)[\s{\"'*]")
-_COMMENT = re.compile(r"(#|//|/\*|\*)")
+_STRING = r""""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'"""
+_PYTHON_TOKEN = re.compile(rf"#.*|{_STRING}")
+_C_TOKEN = re.compile(rf"//.*|/\*.*?(?P<close>\*/|$)|{_STRING}|`(?:\\.|[^`\\])*`")
 
 
-def _import_line_numbers(lines):
+def _code_of(line, python, in_comment):
+    """The line with its comments removed and each string emptied, and whether
+    a block comment is still open at its end."""
+    if in_comment:
+        end = line.find("*/")
+        if end < 0:
+            return "", True
+        line = line[end + 2 :]
+    still_open = False
+
+    def strip(match):
+        nonlocal still_open
+        token = match.group()
+        if token.startswith("/*"):
+            still_open = not match.group("close")
+            return " "
+        if token.startswith(("#", "//")):
+            return ""
+        return '""'
+
+    code = (_PYTHON_TOKEN if python else _C_TOKEN).sub(strip, line)
+    return code.strip(), still_open
+
+
+def _import_line_numbers(lines, python):
     """Line numbers that are blank, a comment, or part of an import statement.
 
     An import continues while a bracket stays open or a line ends in `\\`, so
-    a parenthesized Python import and a multi-line JS import both count."""
+    a parenthesized Python import and a multi-line JS import both count.
+    Brackets inside comments and strings do not count."""
     numbers = set()
     depth = 0
     continued = False
+    in_comment = False
     for number, line in enumerate(lines, start=1):
-        text = line.strip()
+        code, in_comment = _code_of(line, python, in_comment)
         inside = depth or continued
-        if not inside and text and not _COMMENT.match(text) and not _IMPORT_START.match(text):
+        if not inside and code and not _IMPORT_START.match(code):
             continue
         numbers.add(number)
-        if inside or _IMPORT_START.match(text):
-            depth += text.count("(") + text.count("{") - text.count(")") - text.count("}")
+        if inside or code:
+            depth += code.count("(") + code.count("{") - code.count(")") - code.count("}")
             depth = max(0, depth)
-            continued = text.endswith("\\")
+            continued = code.endswith("\\")
     return numbers
 
 
@@ -553,7 +581,8 @@ def _only_imports(loc, cwd):
         text = (cwd / (loc.get("name") or "")).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return False
-    return set(range(start, end + 1)) <= _import_line_numbers(text.splitlines())
+    python = (loc.get("name") or "").endswith((".py", ".pyi"))
+    return set(range(start, end + 1)) <= _import_line_numbers(text.splitlines(), python)
 
 
 def python_clone_groups(data, cwd, added):
