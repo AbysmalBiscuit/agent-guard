@@ -13,7 +13,7 @@ import pathlib
 import sys
 import tempfile
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "plugin"))
 
 from agent_guard.checks import comment_length as checker
 from hook_support import run_hook

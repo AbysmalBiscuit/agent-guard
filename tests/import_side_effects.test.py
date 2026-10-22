@@ -8,7 +8,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent / "plugin"
 
 # A fresh interpreter, so this file's imports are not the package under test.
 _PROBE = textwrap.dedent(

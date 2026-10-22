@@ -45,7 +45,7 @@ guard = true
 
 [tasks.test]
 description = "Run the plugin test suite"
-run = ["uv", "run", "python", "plugin/tests/run.py"]
+run = ["uv", "run", "python", "tests/run.py"]
 guard = true
 
 [tasks.validate]

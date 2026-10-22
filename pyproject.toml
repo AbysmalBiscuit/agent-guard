@@ -73,12 +73,12 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"plugin/tests/*" = ["N999", "PLW1510", "S", "SLF001", "UP031"]
+"tests/*" = ["N999", "PLW1510", "S", "SLF001", "UP031"]
 # A check imports the package relatively, as every other package module does.
 "plugin/agent_guard/checks/*.py" = ["TID252"]
 # doctor prints the log level the run settled, which lives on the state module.
 "plugin/agent_guard/doctor.py" = ["SLF001"]
 
 [tool.pyrefly]
-project-includes = ["plugin/**/*.py"]
-search-path = ["plugin", "plugin/tests"]
+project-includes = ["plugin/**/*.py", "tests/**/*.py"]
+search-path = ["plugin", "tests"]

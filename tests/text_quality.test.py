@@ -15,7 +15,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "plugin"))
 
 from agent_guard.checks import text_quality as check_module
 from agent_guard.contract import ASK_EXIT

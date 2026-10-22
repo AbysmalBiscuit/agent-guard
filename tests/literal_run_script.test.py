@@ -10,7 +10,7 @@ import sys
 import tempfile
 import textwrap
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "plugin"))
 
 from agent_guard.file_checks import script_verdict
 from agent_guard.process import run_full

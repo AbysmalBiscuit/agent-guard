@@ -251,7 +251,7 @@ plugin/
   scripts/                        helpers
   agent_guard/checks/             built-in checks
   rules/ queries/ sgconfig.yml    ast-grep rules
-  tests/                          test suite
+tests/                            test suite
 ```
 
 ## Development
@@ -261,7 +261,7 @@ uv sync
 uv run ruff check
 uv run ruff format --check
 uv run pyrefly check
-uv run python plugin/tests/run.py
+uv run python tests/run.py
 claude plugin validate plugin
 claude plugin validate .
 ```

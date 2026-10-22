@@ -12,7 +12,7 @@ import tempfile
 import unittest
 import uuid
 
-PLUGIN_ROOT = pathlib.Path(__file__).resolve().parent.parent
+PLUGIN_ROOT = pathlib.Path(__file__).resolve().parent.parent / "plugin"
 if str(PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT))
 
