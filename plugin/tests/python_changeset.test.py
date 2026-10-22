@@ -224,6 +224,21 @@ TS_CLONE = textwrap.dedent(
     """
 )
 
+TS_IMPORTS = textwrap.dedent(
+    """\
+    import {
+      readFile,
+      // The writer stays sync.
+      writeFileSync,
+    } from "node:fs";
+    /* The shared helpers (paths and
+       the config). */
+    import path from "node:path";
+    import type { Config } from "./config";
+    import * as os from "node:os";
+    """
+)
+
 PYSCN = textwrap.dedent(
     """\
     fallow = false
@@ -497,6 +512,51 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertIn("src/work.ts:1", report)
         self.assertIn("src/copy.tsx:1", report)
         self.assertNotIn(".py", report)
+
+    @requires_pinned("jscpd")
+    def test_jscpd_leaves_a_shared_typescript_import_block_out_of_the_report(self):
+        """Two added `.ts` files that share only a multi-line import block,
+        with comments inside it, give no clone finding."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            (root / "README.md").write_text("base\n", encoding="utf-8")
+            commit_all(root, "base")
+            src = root / "src"
+            src.mkdir()
+            (src / "first.ts").write_text(TS_IMPORTS + "\nconst first = 1;\n", encoding="utf-8")
+            (src / "second.ts").write_text(TS_IMPORTS + "\nlet second = 2;\n", encoding="utf-8")
+            enable(root, JSCPD_TS_ONLY)
+
+            result = stop_hook(root, session="ts-imports")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    @requires_pinned("jscpd")
+    def test_jscpd_reports_a_typescript_body_after_a_shared_import_block(self):
+        """A clone that runs from a shared `.ts` import block into a duplicated
+        function body is still reported."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            (root / "README.md").write_text("base\n", encoding="utf-8")
+            commit_all(root, "base")
+            src = root / "src"
+            src.mkdir()
+            (src / "first.ts").write_text(TS_IMPORTS + "\n" + TS_CLONE, encoding="utf-8")
+            (src / "second.ts").write_text(TS_IMPORTS + "\n" + TS_CLONE, encoding="utf-8")
+            enable(root, JSCPD_TS_ONLY)
+
+            result = stop_hook(root, session="ts-imports-and-body")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+        self.assertIn("src/first.ts:", report)
+        self.assertIn("src/second.ts:", report)
 
     @requires_pinned("jscpd")
     def test_jscpd_reports_an_mjs_clone_on_an_added_line(self):
