@@ -307,7 +307,7 @@ def _baselined_complexipy(cwd, analysis, rel, name):
 
 
 def _selected(changed, analysis, settings, cwd):
-    """Changed files this analysis reads, minus generated and vendored paths."""
+    """The paths this analysis reads, minus generated and vendored paths."""
     selected = []
     for rel in changed:
         if not analysis.ext_re.search(rel) or settings.ignore_re.search(rel):
