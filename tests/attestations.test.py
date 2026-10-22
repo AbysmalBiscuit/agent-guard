@@ -203,10 +203,11 @@ def start_proxy(test, release, certificate, key):
     return f"http://127.0.0.1:{server.server_address[1]}"
 
 
-def copy_plugin(destination, asset):
+def copy_plugin(destination, asset, *, lock_github=True):
     """The plugin's install files, with only its `github:` tools pinned. The
     lockfile, when the plugin has one, records the fixture's checksum, as a
-    release whose asset matches its pin but carries no attestation."""
+    release whose asset matches its pin but carries no attestation. With
+    `lock_github` false, the lockfile has no entry for the `github:` tools."""
     for relative in ("scripts/install.sh", "hooks/bootstrap-tools", ".claude-plugin/plugin.json"):
         (destination / relative).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(PLUGIN_ROOT / relative, destination / relative)
@@ -228,6 +229,14 @@ def copy_plugin(destination, asset):
                     for key, value in entry.items():
                         if key.startswith("platforms.") and "checksum" in value:
                             text = text.replace(value["checksum"], fixture)
+        if not lock_github:
+            kept, section = [], ""
+            for line in text.splitlines():
+                if line.startswith("["):
+                    section = line.lstrip("[")
+                if not section.startswith('tools."github:'):
+                    kept.append(line)
+            text = "\n".join(kept) + "\n"
         (destination / "mise.lock").write_text(text, encoding="utf-8")
 
 
@@ -287,6 +296,17 @@ class AttestationTests(unittest.TestCase):
 
     def test_an_install_without_an_attestation_fails_and_the_bootstrap_reports_it(self):
         self.assert_install_refused(self.bootstrap())
+
+    def test_a_pin_with_no_lock_entry_fails_and_the_bootstrap_reports_it(self):
+        copy_plugin(self.plugin, self.release.asset, lock_github=False)
+        self.env.update(MISE_LOCKED="false", MISE_LOCKED_SCOPES="global")
+        result = self.bootstrap()
+        report = f"{result.stderr}\nrequests: {self.release.requests}"
+        self.assertEqual(result.returncode, 0, report)
+        self.assertIn("install.sh exited", result.stderr, report)
+        self.assertIn("not in the lockfile", result.stderr, report)
+        failed = self.root / "state" / "agent-guard" / "bootstrap-failed"
+        self.assertTrue(failed.is_file(), report)
 
     def test_a_machine_setting_does_not_turn_off_the_attestation_check(self):
         self.machine_config.write_text(
