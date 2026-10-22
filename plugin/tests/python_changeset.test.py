@@ -11,7 +11,7 @@ import textwrap
 import unittest
 
 from hook_support import PLUGIN_ROOT as PLUGIN
-from hook_support import run_hook
+from hook_support import requires_pinned, run_hook, stub_mise, tool_version
 
 CLONE = textwrap.dedent(
     """\
@@ -124,9 +124,9 @@ def doctor_hook(root, extra_env=None):
     )
 
 
-def install_launcher(root, name, body):
-    """A stand-in for one registry launcher, named through the launchers env."""
-    path = root / "launchers" / name
+def install_stand_in(root, name, body):
+    """A stand-in for one registry tool, for a stub mise to pin."""
+    path = root / "stand-ins" / name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
     path.chmod(0o755)
@@ -246,7 +246,7 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
 
-    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    @requires_pinned("jscpd")
     def test_jscpd_reports_a_new_clone_once_per_session(self):
         """A clone group is reported when one instance sits on a line the branch
         added, in fallow's clone-report shape, and a second Stop in the same
@@ -279,7 +279,7 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertNotIn("pkg/old.py", report)
         self.assertEqual(second.stdout, "")
 
-    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    @requires_pinned("jscpd")
     def test_jscpd_reports_a_typescript_clone_on_an_added_line(self):
         """`\\.tsx?$` reports a clone across `.ts` and `.tsx`, naming both paths.
 
@@ -312,7 +312,7 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertIn("src/copy.tsx:1", report)
         self.assertNotIn(".py", report)
 
-    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    @requires_pinned("jscpd")
     def test_jscpd_reports_a_tsx_copy_of_a_committed_ts_block(self):
         """`\\.tsx?$` reports a `.tsx` copy of a `.ts` block committed on the
         base. The added file is the only change. Both paths appear in the
@@ -343,7 +343,7 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertIn("src/copy.tsx:1", report)
         self.assertNotIn(".py", report)
 
-    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    @requires_pinned("jscpd")
     def test_jscpd_reports_an_mjs_clone_on_an_added_line(self):
         """A Stop audit with jscpd_extensions set to `.mjs` reports a duplicated
         block when one copy sits on a line the branch added. A Python clone in
@@ -370,7 +370,7 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertIn("src/copy.mjs:1", report)
         self.assertNotIn(".py", report)
 
-    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    @requires_pinned("jscpd")
     def test_jscpd_reports_an_mts_clone_on_an_added_line(self):
         """`\\.(mts|cts)$` selects those files, and a duplicated `.mts` block
         on an added line is reported. A Python clone stays out of the report."""
@@ -396,7 +396,7 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertIn("src/copy.mts:1", report)
         self.assertNotIn(".py", report)
 
-    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    @requires_pinned("jscpd")
     def test_jscpd_leaves_a_cts_copy_of_a_ts_block_out_of_the_report(self):
         """`\\.ts$` selects `.ts` only. A `.cts` copy of an added `.ts` block
         stays out of the report."""
@@ -418,7 +418,7 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
 
-    @unittest.skipUnless(shutil.which("bunx"), "requires bunx")
+    @requires_pinned("jscpd")
     def test_jscpd_scans_typescript_inside_an_anchored_extension(self):
         """`^src/.*\\.ts$` selects TypeScript under src, so a clone there is
         reported."""
@@ -442,7 +442,7 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertIn("src/work.ts:1", report)
         self.assertIn("src/copy.ts:1", report)
 
-    @unittest.skipUnless(shutil.which("uvx"), "requires uvx")
+    @requires_pinned("pyscn")
     def test_pyscn_reports_only_a_cycle_the_base_lacked(self):
         """A cycle is reported when the base revision did not have it. A cycle
         already present at the base stays silent. The same holds when the state
@@ -471,9 +471,9 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertNotIn("old_a", report)
         self.assertNotIn("pkg.b", report)
 
-    def test_a_missing_launcher_leaves_the_audit_silent_and_shows_in_doctor(self):
-        """A launcher the registry cannot start leaves Stop silent. doctor
-        names each analysis that stayed silent, from the registry label."""
+    def test_a_missing_pin_leaves_the_audit_silent_and_shows_in_doctor(self):
+        """A pin mise cannot resolve leaves Stop silent. doctor names each
+        analysis that stayed silent, with the pin it could not find."""
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "home").mkdir()
@@ -498,26 +498,28 @@ class PythonChangesetTests(unittest.TestCase):
                     """
                 ),
             )
-            missing = root / "launchers" / "missing"
-            launchers = {"AGENT_GUARD_LAUNCHERS": f"bunx={missing},uvx={missing}"}
-            hook = stop_hook(root, session="bare", extra_env=launchers)
-            doctor = doctor_hook(root, launchers)
+            unpinned = {"PATH": f"{stub_mise(root / 'mise')}:{os.environ['PATH']}"}
+            hook = stop_hook(root, session="bare", extra_env=unpinned)
+            doctor = doctor_hook(root, unpinned)
 
         self.assertEqual(hook.returncode, 0, hook.stderr)
         self.assertEqual(hook.stdout, "")
         self.assertEqual(doctor.returncode, 0, doctor.stderr)
-        self.assertIn("jscpd: bunx is not on PATH, so the analysis stayed silent", doctor.stdout)
-        self.assertIn("pyscn: uv is not on PATH, so the analysis stayed silent", doctor.stdout)
+        for name in ("jscpd", "pyscn"):
+            self.assertIn(
+                f"{name}: pin {tool_version(name)} is not installed, so the analysis stayed silent",
+                doctor.stdout,
+            )
 
-    def test_a_launcher_timeout_stays_silent_and_doctor_records_it(self):
-        """A launcher that does not finish inside its budget leaves Stop silent,
-        and doctor shows that analysis's last failure."""
+    def test_a_tool_timeout_stays_silent_and_doctor_records_it(self):
+        """A pinned tool that does not finish inside its budget leaves Stop
+        silent, and doctor shows that analysis's last failure."""
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "home").mkdir()
             sleep = shutil.which("sleep")
             self.assertIsNotNone(sleep)
-            stall = install_launcher(root, "stall", f"#!/bin/sh\nexec {sleep} 30\n")
+            stall = install_stand_in(root, "stall", f"#!/bin/sh\nexec {sleep} 30\n")
             init_repo(root)
             pkg = root / "pkg"
             pkg.mkdir()
@@ -537,10 +539,12 @@ class PythonChangesetTests(unittest.TestCase):
                     """
                 ),
             )
+            # The stand-in never starts node, so any executable fills its pin.
+            mise = stub_mise(root / "mise", {"jscpd": stall, "node": stall})
             hook = stop_hook(
                 root,
                 session="timeout",
-                extra_env={"AGENT_GUARD_LAUNCHERS": f"bunx={stall}"},
+                extra_env={"PATH": f"{mise}:{os.environ['PATH']}"},
                 timeout=20,
             )
             doctor = doctor_hook(root)

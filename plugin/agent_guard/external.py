@@ -6,81 +6,61 @@ import subprocess
 from pathlib import Path
 
 from .process import record_python_problem
-
-
-class Launcher:
-    """How one runner starts a pinned tool.
-
-    `own_venv` lets a tree's `.venv/bin/<tool>` run before the launcher."""
-
-    def __init__(self, name, label, argv, own_venv=False):
-        self.name = name
-        self.label = label
-        self.argv = argv
-        self.own_venv = own_venv
-
-    def command(self, binary, tool):
-        return [binary, *self.argv(tool)]
-
-
-def _uvx_argv(tool):
-    return ["--from", f"{tool.name}=={tool.version}", tool.name]
-
-
-def _bunx_argv(tool):
-    return ["--bun", f"{tool.name}@{tool.version}"]
-
-
-UVX = Launcher("uvx", "uv", _uvx_argv, own_venv=True)
-BUNX = Launcher("bunx", "bunx", _bunx_argv)
+from .tools import pinned_binary, tool_version
 
 
 class ExternalTool:
-    """One tool the audit launches.
+    """One tool the audit launches, at the version `mise.toml` pins.
 
     `extensions` and `baseline` are the defaults a tree keeps until it names
-    its own."""
+    its own. `own_venv` lets a tree's `.venv/bin/<tool>` run before the pin.
+    `runtime` names the pinned interpreter the tool's launcher finds on PATH."""
 
-    def __init__(self, name, version, launcher, extensions, baseline=""):
+    def __init__(self, name, extensions, baseline="", own_venv=False, runtime=None):
         self.name = name
-        self.version = version
-        self.launcher = launcher
         self.extensions = extensions
         self.baseline = baseline
+        self.own_venv = own_venv
+        self.runtime = runtime
 
 
 EXTERNAL_TOOLS = (
-    ExternalTool("complexipy", "8.0.1", UVX, r"\.py$", "complexipy-snapshot.json"),
-    ExternalTool("lizard", "1.24.1", UVX, r"\.(py|ts|tsx)$", "whitelizard.txt"),
-    ExternalTool("vulture", "2.16", UVX, r"\.py$", "vulture-whitelist.py"),
-    ExternalTool("jscpd", "5.4.2", BUNX, r"\.py$"),
-    ExternalTool("pyscn", "1.32.5", UVX, r"\.py$"),
+    ExternalTool("complexipy", r"\.py$", "complexipy-snapshot.json", own_venv=True),
+    ExternalTool("lizard", r"\.(py|ts|tsx)$", "whitelizard.txt", own_venv=True),
+    ExternalTool("vulture", r"\.py$", "vulture-whitelist.py", own_venv=True),
+    ExternalTool("jscpd", r"\.py$", runtime="node"),
+    ExternalTool("pyscn", r"\.py$", own_venv=True),
 )
 
 _BY_NAME = {tool.name: tool for tool in EXTERNAL_TOOLS}
 
 
-def _launcher_override(launcher):
-    raw = os.environ.get("AGENT_GUARD_LAUNCHERS") or ""
-    for item in raw.split(","):
-        key, sep, value = item.partition("=")
-        if sep and key.strip() == launcher.name:
-            return value.strip()
+def _missing_pin(tool):
+    """The first pin the tool needs that mise cannot name, or None."""
+    for name in (tool.name, tool.runtime):
+        if name is not None and pinned_binary(name) is None:
+            return name
     return None
 
 
-def _launcher_path(tool):
-    override = _launcher_override(tool.launcher)
-    if override is not None:
-        path = Path(override)
-        return str(path) if path.is_file() and os.access(path, os.X_OK) else None
-    return shutil.which(tool.launcher.name)
+def tool_reason(tool):
+    """Why the audit cannot start one tool, without the consequence."""
+    if shutil.which("mise") is None:
+        return f"{tool.name}: mise is not on PATH"
+    pin = _missing_pin(tool) or tool.name
+    subject = tool.name if pin == tool.name else f"{tool.name}: {pin}"
+    return f"{subject}: pin {tool_version(pin) or 'unset'} is not installed"
+
+
+def tool_problem(tool):
+    """The doctor line for one tool the audit cannot start."""
+    return f"{tool_reason(tool)}, so the analysis stayed silent"
 
 
 def _own_venv(tool, cwd):
-    """The tree's `.venv/bin/<tool>` when that launcher prefers it and the
-    file can run. Otherwise None."""
-    if not tool.launcher.own_venv:
+    """The tree's `.venv/bin/<tool>` when the tool prefers it and the file can
+    run. Otherwise None."""
+    if not tool.own_venv:
         return None
     own = Path(cwd) / ".venv" / "bin" / tool.name
     if own.is_file() and os.access(own, os.X_OK):
@@ -89,22 +69,30 @@ def _own_venv(tool, cwd):
 
 
 def tool_argv(name, cwd):
-    """The argv that starts one tool, or None when its launcher cannot start.
+    """The argv that starts one tool, or None when mise cannot name its pin.
 
-    A missing launcher is recorded for doctor. The audit that called this
-    stays silent."""
+    A missing pin is recorded for doctor. The audit that called this stays
+    silent."""
     tool = _BY_NAME[name]
-    launcher = tool.launcher
     own = _own_venv(tool, cwd)
     if own is not None:
         return [str(own)]
-    binary = _launcher_path(tool)
-    if binary is None:
-        record_python_problem(
-            f"{name}: {launcher.label} is not on PATH, so the analysis stayed silent", cwd
-        )
+    if _missing_pin(tool) is not None:
+        record_python_problem(tool_problem(tool), cwd)
         return None
-    return launcher.command(binary, tool)
+    return [pinned_binary(name)]
+
+
+def _runtime_env(name):
+    """The environment with the tool's pinned runtime first on PATH, or None
+    to inherit the hook's own."""
+    runtime = _BY_NAME[name].runtime
+    binary = pinned_binary(runtime) if runtime else None
+    if binary is None:
+        return None
+    env = os.environ.copy()
+    env["PATH"] = os.pathsep.join([str(Path(binary).parent), env.get("PATH", "")])
+    return env
 
 
 def run_external(name, argv, timeout, cwd):
@@ -117,6 +105,7 @@ def run_external(name, argv, timeout, cwd):
             text=True,
             timeout=timeout,
             cwd=cwd,
+            env=_runtime_env(name),
             encoding="utf-8",
             errors="replace",
             check=False,
@@ -138,18 +127,10 @@ def run_external(name, argv, timeout, cwd):
     return done.stdout or ""
 
 
-def missing_launcher_notes(enabled, cwd):
-    """One doctor line per launcher that an enabled tool cannot start."""
-    by_launcher = {}
-    for tool in EXTERNAL_TOOLS:
-        if tool.name not in enabled or _own_venv(tool, cwd) is not None:
-            continue
-        by_launcher.setdefault(tool.launcher.name, []).append(tool)
-    lines = []
-    for tools in by_launcher.values():
-        launcher = tools[0].launcher
-        if _launcher_path(tools[0]) is not None:
-            continue
-        names = ", ".join(tool.name for tool in tools)
-        lines.append(f"{launcher.label} is not on PATH, so {names} stays silent")
-    return lines
+def missing_tool_notes(enabled, cwd):
+    """One doctor line per enabled tool the audit cannot start."""
+    return [
+        f"{tool_reason(tool)}, so {tool.name} stays silent"
+        for tool in EXTERNAL_TOOLS
+        if tool.name in enabled and _own_venv(tool, cwd) is None and _missing_pin(tool) is not None
+    ]

@@ -3,16 +3,15 @@
 
 import json
 import os
-import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
-from hook_support import run_hook
+from hook_support import pinned_binary, requires_pinned, run_hook
 
 
-@unittest.skipUnless(shutil.which("fallow"), "requires fallow with audit-cache remove")
+@requires_pinned("fallow")
 class FallowCleanupTests(unittest.TestCase):
     def test_session_end_removes_only_its_projects_cache(self):
         for codex in (False, True):
@@ -60,7 +59,7 @@ class FallowCleanupTests(unittest.TestCase):
                     before = set(scratch.glob("fallow-audit-base-cache-*"))
                     self.run_command(
                         [
-                            "fallow",
+                            pinned_binary("fallow"),
                             "audit",
                             "--root",
                             str(project),

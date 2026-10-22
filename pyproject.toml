@@ -10,7 +10,7 @@ dependencies = []
 
 [dependency-groups]
 dev = [
-    "ast-grep-cli>=0.45.3",
+    "ast-grep-cli",
     "pyrefly",
     "ruff",
 ]

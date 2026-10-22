@@ -10,7 +10,7 @@ import textwrap
 import unittest
 
 from hook_support import PLUGIN_ROOT as PLUGIN
-from hook_support import run_hook
+from hook_support import requires_pinned, run_hook, stub_mise, tool_version
 
 NOISY = textwrap.dedent(
     """\
@@ -156,33 +156,13 @@ def commit(project, name, text):
     )
 
 
-def doctor_without_uv(_project, checkout):
-    """doctor in a fresh tree, with the uvx launcher missing.
-
-    The launchers seam points at a path that is not a file, so doctor uses
-    the same rule the runtime uses."""
+def doctor_without_pins(checkout):
+    """doctor in a fresh tree, behind a stub mise that resolves no pin."""
     with tempfile.TemporaryDirectory() as directory:
         fresh = pathlib.Path(directory) / "project"
         fresh.mkdir()
-        missing = fresh / "no-uvx"
-        return doctor(
-            fresh,
-            checkout,
-            env_extra={"AGENT_GUARD_LAUNCHERS": f"uvx={missing}"},
-        )
-
-
-def doctor_without_bunx(_project, checkout):
-    """doctor in a fresh tree, with the bunx launcher missing."""
-    with tempfile.TemporaryDirectory() as directory:
-        fresh = pathlib.Path(directory) / "project"
-        fresh.mkdir()
-        missing = fresh / "no-bunx"
-        return doctor(
-            fresh,
-            checkout,
-            env_extra={"AGENT_GUARD_LAUNCHERS": f"bunx={missing}"},
-        )
+        mise = stub_mise(pathlib.Path(directory) / "mise")
+        return doctor(fresh, checkout, env_extra={"PATH": f"{mise}:{os.environ['PATH']}"})
 
 
 def hook_env(project, checkout=None, env_extra=None, config_dir=None, state_home=None):
@@ -277,13 +257,15 @@ class PythonAuditTests(unittest.TestCase):
             stop(
                 first,
                 checkout,
-                env_extra={"PATH": "/usr/bin:/bin"},
+                env_extra={"PATH": f"{stub_mise(root / 'mise')}:/usr/bin:/bin"},
                 state_home=state,
             )
             stop(second, checkout, state_home=state)
             reported = doctor(first, checkout, state_home=state)
-        self.assertIn("uv is not on PATH", reported)
+        self.assertIn("pin", reported)
+        self.assertIn("stayed silent", reported)
 
+    @requires_pinned("vulture")
     def test_a_new_file_committed_on_the_branch_still_reports(self):
         """A file the merge-base never had, committed on the branch, is still
         the changeset. Stop names the offender it added."""
@@ -330,6 +312,7 @@ class PythonAuditTests(unittest.TestCase):
             out = stop(project)
         self.assertEqual(out, "")
 
+    @requires_pinned("complexipy")
     def test_complexipy_reports_only_the_function_the_changeset_touched(self):
         out = self.pair("complexipy")
         self.assertIn("work.py", out)
@@ -338,6 +321,7 @@ class PythonAuditTests(unittest.TestCase):
         self.assertNotIn("Box::kept", out)
         self.assertNotIn("parked.py", out)
 
+    @requires_pinned("lizard")
     def test_lizard_reports_only_the_function_the_changeset_touched(self):
         out = self.pair("lizard")
         self.assertIn("work.py", out)
@@ -346,6 +330,7 @@ class PythonAuditTests(unittest.TestCase):
         self.assertNotIn("Box::kept", out)
         self.assertNotIn("parked.py", out)
 
+    @requires_pinned("vulture")
     def test_vulture_reports_only_dead_code_the_branch_added(self):
         out = self.pair("vulture")
         self.assertIn("work.py", out)
@@ -399,12 +384,12 @@ class PythonAuditTests(unittest.TestCase):
         self.assertIn("baseline   : dead.py  from " + origin, out)
         self.assertIn("timeout    : 20", out)
         self.assertIn("from default", out)
-        without_uv = doctor_without_uv(project, checkout)
-        self.assertIn("uv is not on PATH", without_uv)
-        self.assertIn("stays silent", without_uv)
-        bunx_checkout = checkout + "jscpd = true\n"
-        without_bunx = doctor_without_bunx(project, bunx_checkout)
-        self.assertIn("bunx is not on PATH, so jscpd stays silent", without_bunx)
+        without_pins = doctor_without_pins(checkout + "jscpd = true\n")
+        for name in ("complexipy", "vulture", "jscpd"):
+            self.assertIn(
+                f"{name}: pin {tool_version(name)} is not installed, so {name} stays silent",
+                without_pins,
+            )
 
     def test_a_blank_extension_and_a_failing_tool_stay_silent(self):
         """An empty extension matches nothing. A tool that exits non-zero on a
@@ -445,6 +430,7 @@ class PythonAuditTests(unittest.TestCase):
         self.assertNotIn("Box::fresh", out)
         self.assertNotIn("parameters", out)
 
+    @requires_pinned("complexipy")
     def test_a_timeout_leaves_the_audit_silent_and_doctor_shows_it(self):
         """A tool that outruns its timeout adds no finding. The next doctor
         run, a separate process, still names that timeout."""
@@ -471,13 +457,14 @@ class PythonAuditTests(unittest.TestCase):
             out = stop(
                 project,
                 checkout,
-                env_extra={"PATH": "/usr/bin:/bin"},
+                env_extra={"PATH": f"{stub_mise(project.parent / 'mise')}:/usr/bin:/bin"},
             )
             reported = doctor(project, checkout)
         self.assertEqual(out, "")
-        self.assertIn("uv is not on PATH", reported)
+        self.assertIn("pin", reported)
         self.assertIn("stayed silent", reported)
 
+    @requires_pinned("lizard")
     def test_a_clean_stop_clears_a_recorded_python_tool_problem(self):
         """A Stop that could not start uv records the gap. A later Stop that
         runs the tool and finds nothing clears that note, so doctor is quiet."""
@@ -490,7 +477,7 @@ class PythonAuditTests(unittest.TestCase):
             blocked = stop(
                 project,
                 checkout,
-                env_extra={"PATH": "/usr/bin:/bin"},
+                env_extra={"PATH": f"{stub_mise(project.parent / 'mise')}:/usr/bin:/bin"},
             )
             stale = doctor(project, checkout)
             # A repeat of the same diff skips the tools, so add a file the
@@ -499,11 +486,13 @@ class PythonAuditTests(unittest.TestCase):
             clean = stop(project, checkout)
             reported = doctor(project, checkout)
         self.assertEqual(blocked, "")
-        self.assertIn("uv is not on PATH", stale)
+        self.assertIn("pin", stale)
+        self.assertIn("stayed silent", stale)
         self.assertEqual(clean, "")
         self.assertNotIn("python tools", reported)
-        self.assertNotIn("uv is not on PATH", reported)
+        self.assertNotIn("stayed silent", reported)
 
+    @requires_pinned("lizard")
     def test_an_empty_changeset_clears_a_recorded_python_tool_problem(self):
         """A Stop with no changed file still drops a note an earlier Stop left,
         so doctor does not keep a gap the tools no longer have work for."""
@@ -516,7 +505,7 @@ class PythonAuditTests(unittest.TestCase):
             blocked = stop(
                 project,
                 checkout,
-                env_extra={"PATH": "/usr/bin:/bin"},
+                env_extra={"PATH": f"{stub_mise(project.parent / 'mise')}:/usr/bin:/bin"},
             )
             (project / "work.py").unlink()
             empty = stop(project, checkout)
@@ -526,20 +515,22 @@ class PythonAuditTests(unittest.TestCase):
         self.assertNotIn("python tools", reported)
 
     def test_a_tool_uv_cannot_fetch_stays_silent_and_doctor_shows_it(self):
-        """uv is on PATH, but the pinned tool cannot be fetched. Stop prints
-        nothing. The next doctor names that the tool produced no report."""
+        """The pinned tool starts and writes no report. Stop prints nothing.
+        The next doctor names that the tool produced no report."""
         with tempfile.TemporaryDirectory() as directory:
             project = pathlib.Path(directory) / "project"
             project.mkdir()
-            cache = pathlib.Path(directory) / "uv-cache"
-            cache.mkdir()
+            stub = project / "complexipy"
+            stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            stub.chmod(0o755)
             commit(project, "seed.py", CALM)
             (project / "work.py").write_text(NOISY, encoding="utf-8")
             checkout = tree_config("complexipy")
+            mise = stub_mise(project.parent / "mise", {"complexipy": stub})
             out = stop(
                 project,
                 checkout,
-                env_extra={"UV_OFFLINE": "1", "UV_CACHE_DIR": str(cache)},
+                env_extra={"PATH": f"{mise}{os.pathsep}{os.environ['PATH']}"},
             )
             reported = doctor(project, checkout)
         self.assertEqual(out, "")

@@ -30,6 +30,7 @@ from .process import (
     run_bytes,
     succeeds,
 )
+from .tools import pinned_binary
 
 
 def find_duplication(changeset, slot):
@@ -38,10 +39,11 @@ def find_duplication(changeset, slot):
     del slot
     settings = changeset.settings
     cwd = changeset.cwd
-    if not settings.use_fallow or not have("fallow"):
+    fallow = pinned_binary("fallow")
+    if not settings.use_fallow or fallow is None:
         return AnalysisResult()
     raw = run(
-        ["fallow", "audit", "--base", changeset.base, "--format", "json"],
+        [fallow, "audit", "--base", changeset.base, "--format", "json"],
         timeout=settings.fallow_timeout,
         cwd=cwd,
     )
@@ -112,7 +114,10 @@ def find_over_extraction(changeset, slot):
     cwd = changeset.cwd
     seen_file = changeset.seen_file
     roots = changeset.roots
-    if not (settings.test_only or settings.single_caller) or not have("ast-grep"):
+    if not (settings.test_only or settings.single_caller):
+        return AnalysisResult()
+    ast_grep = pinned_binary("ast-grep")
+    if ast_grep is None:
         return AnalysisResult()
     if seen_file is None:
         seen = set()
@@ -148,7 +153,7 @@ def find_over_extraction(changeset, slot):
             continue
 
         raw = run(
-            ["ast-grep", "scan", "-r", str(query), "--json=compact", rel],
+            [ast_grep, "scan", "-r", str(query), "--json=compact", rel],
             timeout=15,
             cwd=cwd,
         )

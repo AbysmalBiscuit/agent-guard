@@ -11,7 +11,7 @@ import textwrap
 import unittest
 
 from hook_support import PLUGIN_ROOT as PLUGIN
-from hook_support import run_hook
+from hook_support import pinned_binary, requires_pinned, run_hook, stub_mise
 
 GIT_SHIM = textwrap.dedent(
     """\
@@ -123,6 +123,7 @@ def diff_against_base(calls):
 
 
 class ChangesetOnceTests(unittest.TestCase):
+    @requires_pinned("jscpd")
     def test_one_stop_diffs_the_base_once_for_many_findings(self):
         """One Stop runs `git diff` against the base once for every finding."""
         with tempfile.TemporaryDirectory() as directory:
@@ -174,6 +175,7 @@ class ChangesetOnceTests(unittest.TestCase):
         against_base = diff_against_base(calls)
         self.assertEqual(len(against_base), 1, calls)
 
+    @requires_pinned("pyscn")
     def test_the_base_revision_is_extracted_once_and_shared(self):
         """Two analyses that need the base revision share one extraction."""
         with tempfile.TemporaryDirectory() as directory:
@@ -478,6 +480,8 @@ class ChangesetOnceTests(unittest.TestCase):
         self.assertIn("src/café.go", report)
         self.assertIn("plain.go", report)
 
+    @requires_pinned("jscpd")
+    @requires_pinned("node")
     def test_a_missing_tool_does_not_silence_the_other_analyses(self):
         """A tool that cannot start returns an empty result. The other
         analyses still report."""
@@ -502,23 +506,26 @@ class ChangesetOnceTests(unittest.TestCase):
                     """
                 ),
             )
-            # fallow is absent from PATH, so that analysis exits before it
-            # parses. jscpd still has to report the clone. git stays visible.
+            # mise has no fallow pin, so that analysis exits before it parses.
+            # jscpd still has to report the clone. node comes from its pin.
             bindir, log, real = install_git_shim(root)
-            hidden = root / "no-fallow"
-            hidden.mkdir()
-            for name in ("git", "bunx", "bun", "uvx"):
-                target = shutil.which(name)
-                if target:
-                    link = hidden / name
-                    link.symlink_to(target)
+            mise = stub_mise(
+                root / "mise",
+                {"jscpd": pinned_binary("jscpd"), "node": pinned_binary("node")},
+            )
+            # A node earlier on PATH than the pin fails, as a mise shim with
+            # no version set does.
+            unset = root / "unset-node"
+            unset.mkdir()
+            (unset / "node").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+            (unset / "node").chmod(0o755)
             result = stop_hook(
                 root,
                 "missing-tool",
                 bindir,
                 log,
                 real,
-                path=f"{bindir}{os.pathsep}{hidden}",
+                path=os.pathsep.join([str(bindir), mise, str(unset), "/usr/bin", "/bin"]),
             )
 
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)

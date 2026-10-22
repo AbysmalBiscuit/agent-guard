@@ -5,9 +5,10 @@ import shutil
 from . import _state
 from .checks import MANDATORY_CHECKS
 from .config import Settings, discover_roots, load_config, sgconfig_for
-from .external import EXTERNAL_TOOLS, missing_launcher_notes
+from .external import EXTERNAL_TOOLS, missing_tool_notes
 from .paths import CONFIG_NAME
 from .process import have, python_tool_problem
+from .tools import TOOL_IDS, pinned_binary, tool_version
 
 
 def doctor(cwd):
@@ -47,14 +48,21 @@ def doctor(cwd):
         print(f"      changeset_checks: {diff_checks}")
     names = ", ".join(check.__module__.rsplit(".", 1)[-1] for check in MANDATORY_CHECKS)
     print(f"  mandatory  : {names}")
-    for tool in ("ast-grep", "fallow", "git", "rg"):
+    mise = shutil.which("mise")
+    print(f"  {'mise':<10} : {mise or 'not installed'}")
+    if mise is None:
+        print("  mise missing     -> pinned tools stay silent; install mise, then run install.sh")
+    for tool in TOOL_IDS:
+        where = pinned_binary(tool) or "not installed"
+        print(f"  {tool:<10} : {where}  pin {tool_version(tool) or 'unset'}")
+    for tool in ("git", "rg"):
         print(f"  {tool:<10} : {shutil.which(tool) or 'not installed'}")
     print()
     print(f"  tool_checks      : {'on' if settings.tool_checks else 'off'}")
     print("  mandatory checks : always on; no config key or root reaches them")
-    if not have("ast-grep"):
+    if pinned_binary("ast-grep") is None:
         print("  ast-grep missing -> per-file rules skipped (checks/ still run)")
-    if not have("fallow"):
+    if pinned_binary("fallow") is None:
         print("  fallow missing   -> changeset duplication check skipped")
     if not have("rg"):
         print("  rg missing       -> over-extraction check skipped")
@@ -101,7 +109,7 @@ def doctor(cwd):
         print(f"  python tools : {problem}")
     else:
         enabled = {tool.name for tool in EXTERNAL_TOOLS if settings.python[tool.name].enabled}
-        for note in missing_launcher_notes(enabled, cwd):
+        for note in missing_tool_notes(enabled, cwd):
             print(f"  python tools : {note}")
     if settings.scope == "diff":
         print("  scope=diff       -> per-file findings limited to lines the branch")

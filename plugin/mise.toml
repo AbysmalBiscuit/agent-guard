@@ -1,0 +1,13 @@
+# One source of the tool versions the audit runs. external.py reads these
+# versions. install.sh installs this file. A version appears here only.
+
+[tools]
+"github:fallow-rs/fallow" = "3.34.1"
+ast-grep = "0.45.3"
+uv = "0.11.26"
+"pipx:complexipy" = "8.0.1"
+"pipx:lizard" = "1.24.1"
+"pipx:vulture" = "2.16"
+node = "24.21.0"
+"npm:jscpd" = "5.4.2"
+"pipx:pyscn" = "1.32.5"

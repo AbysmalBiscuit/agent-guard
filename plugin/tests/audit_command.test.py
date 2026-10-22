@@ -9,7 +9,7 @@ import textwrap
 import unittest
 
 from hook_support import PLUGIN_ROOT as PLUGIN
-from hook_support import run_hook
+from hook_support import requires_pinned, run_hook
 
 CLONE = textwrap.dedent(
     """\
@@ -82,6 +82,7 @@ def audit(root, args=(), extra_env=None):
 
 
 class AuditCommandTests(unittest.TestCase):
+    @requires_pinned("jscpd")
     def test_audit_prints_a_duplicated_block_on_every_run(self):
         """A branch that added a duplicated block prints the finding and exits
         non-zero. A second run prints the same finding again."""
@@ -108,6 +109,7 @@ class AuditCommandTests(unittest.TestCase):
         self.assertEqual(second.returncode, first.returncode)
         self.assertEqual(second.stdout, first.stdout)
 
+    @requires_pinned("jscpd")
     def test_audit_base_compares_with_the_named_ref(self):
         """`--base REF` compares the checkout with that ref. The same clone
         against the ref that already holds it prints nothing."""
