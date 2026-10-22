@@ -1,6 +1,9 @@
 # The tool versions the audit runs. Change a version here, then lock it as
 # the README says. external.py reads these versions. install.sh installs them.
 
+# The oldest mise that reads lockfile_version 3 in mise.lock.
+min_version = "2026.9.16"
+
 # Each plugin call to mise trusts this file through MISE_TRUSTED_CONFIG_PATHS,
 # so these settings win over the machine's global mise config.
 [settings]
