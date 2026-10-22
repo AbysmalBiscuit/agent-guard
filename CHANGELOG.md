@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/AbysmalBiscuit/agent-guard/compare/v0.1.8...v0.1.9) (2026-10-22)
+
+
+### Bug Fixes
+
+* require mise 2026.9.16 for the plugin lock ([#53](https://github.com/AbysmalBiscuit/agent-guard/issues/53)) ([aad6e00](https://github.com/AbysmalBiscuit/agent-guard/commit/aad6e00a76d849d06dbf46c426c5ad3da7e07591)), closes [#52](https://github.com/AbysmalBiscuit/agent-guard/issues/52)
+
 ## [0.1.8](https://github.com/AbysmalBiscuit/agent-guard/compare/v0.1.7...v0.1.8) (2026-10-22)
 
 
