@@ -21,8 +21,10 @@ if [ ! -f "$MISE_CONFIG" ]; then
 	die "mise config missing: ${MISE_CONFIG}"
 fi
 
-# These win over the machine's mise settings: an install fails unless mise
-# verifies again the provenance that mise.lock records, such as an attestation.
+export MISE_TRUSTED_CONFIG_PATHS="${MISE_TRUSTED_CONFIG_PATHS:+${MISE_TRUSTED_CONFIG_PATHS}:}${PLUGIN_ROOT}"
+
+# The [settings] of mise.toml win over the machine's config files, but not
+# over its MISE_* variables. These win over both.
 export MISE_GITHUB_ATTESTATIONS=true MISE_GITHUB_GITHUB_ATTESTATIONS=true
 export MISE_LOCKFILE=true MISE_LOCKED_VERIFY_PROVENANCE=true
 

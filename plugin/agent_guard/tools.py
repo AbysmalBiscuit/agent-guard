@@ -54,9 +54,11 @@ def pinned_binary(name):
 
 
 def _mise_which(mise, name):
+    trusted = filter(None, (os.environ.get("MISE_TRUSTED_CONFIG_PATHS"), str(PLUGIN_ROOT)))
     try:
         done = subprocess.run(
             [mise, "-C", str(PLUGIN_ROOT), "which", name],
+            env={**os.environ, "MISE_TRUSTED_CONFIG_PATHS": os.pathsep.join(trusted)},
             capture_output=True,
             text=True,
             timeout=10,

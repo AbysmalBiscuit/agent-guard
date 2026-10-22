@@ -38,7 +38,7 @@ def github_tool():
 
 
 def fixture_asset():
-    """A release archive holding a `fallow` that only prints a version."""
+    """A release archive holding a `fallow` that only prints `fixture`."""
     script = b'#!/bin/sh\nprintf "fixture\\n"\n'
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
@@ -297,6 +297,15 @@ class AttestationTests(unittest.TestCase):
             "locked_verify_provenance = false\n",
             encoding="utf-8",
         )
+        for setting in ("github_attestations", "github.github_attestations"):
+            pinned = subprocess.run(
+                ["mise", "-C", str(self.plugin), "settings", "get", setting],
+                capture_output=True,
+                text=True,
+                env={**self.env, "MISE_TRUSTED_CONFIG_PATHS": str(self.plugin)},
+                check=True,
+            )
+            self.assertEqual(pinned.stdout.strip(), "true", setting)
         self.assert_install_refused(self.bootstrap())
 
 
