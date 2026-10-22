@@ -561,13 +561,92 @@ def _on_added_line(instance, line_count, added):
     return any(line in lines for line in range(start, start + (line_count or 1)))
 
 
+_IMPORT_START = re.compile(r"(import|from)[\s{\"'*]")
+_STRING = r""""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'"""
+_PYTHON_TOKEN = re.compile(rf"#.*|(?P<open>\"\"\"|''')(?:\\.|.)*?(?P<close>(?P=open)|$)|{_STRING}")
+_C_TOKEN = re.compile(rf"//.*|(?P<open>/\*|`)(?:\\.|.)*?(?P<close>\*/|`|$)|{_STRING}")
+_CLOSERS = {"/*": "*/", "`": "`", '"""': '"""', "'''": "'''"}
+
+
+def _code_of(line, python, closer):
+    """The line with its comments removed and each string emptied, and the
+    closer of a block comment or multi-line string still open at its end."""
+    prefix = ""
+    if closer:
+        end = re.match(rf"(?:\\.|.)*?{re.escape(closer)}", line)
+        emptied = " " if closer == "*/" else '""'
+        if not end:
+            return emptied.strip(), closer
+        prefix = emptied
+        line = line[end.end() :]
+    still_open = None
+
+    def strip(match):
+        nonlocal still_open
+        token = match.group()
+        opener = match.group("open")
+        if opener:
+            if not match.group("close"):
+                still_open = _CLOSERS[opener]
+            return " " if opener == "/*" else '""'
+        if token.startswith(("#", "//")):
+            return ""
+        return '""'
+
+    code = (_PYTHON_TOKEN if python else _C_TOKEN).sub(strip, line)
+    return (prefix + code).strip(), still_open
+
+
+def _import_line_numbers(lines, python):
+    """Line numbers that are blank, a comment, or part of an import statement.
+
+    An import continues while a bracket stays open or a line ends in `\\`, so
+    a parenthesized Python import and a multi-line JS import both count.
+    Brackets inside comments and strings do not count. A line that also holds
+    a statement other than an import is code, and ends the continuation."""
+    numbers = set()
+    depth = 0
+    continued = False
+    closer = None
+    for number, line in enumerate(lines, start=1):
+        code, closer = _code_of(line, python, closer)
+        inside = depth or continued
+        statements = [s.strip() for s in code.split(";")][1 if inside else 0 :]
+        if any(s and not _IMPORT_START.match(s) for s in statements):
+            depth = 0
+            continued = False
+            continue
+        numbers.add(number)
+        if inside or code:
+            depth += code.count("(") + code.count("{") - code.count(")") - code.count("}")
+            depth = max(0, depth)
+            continued = code.endswith("\\")
+    return numbers
+
+
+def _only_imports(loc, cwd):
+    """True when this clone site holds nothing but import statements."""
+    start = (loc.get("startLoc") or {}).get("line") or loc.get("start")
+    end = (loc.get("endLoc") or {}).get("line") or loc.get("end")
+    if not start or not end:
+        return False
+    try:
+        text = (cwd / (loc.get("name") or "")).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    python = (loc.get("name") or "").endswith((".py", ".pyi"))
+    return set(range(start, end + 1)) <= _import_line_numbers(text.splitlines(), python)
+
+
 def python_clone_groups(data, cwd, added):
     """jscpd's pair list, grouped the way fallow groups a clone.
 
-    Sites are collected by fragment first. A group stays only when one of its
-    instances sits on a line the branch added."""
+    A pair whose sites hold only imports is no clone, as in fallow. A group
+    stays only when one of its instances sits on a line the branch added."""
     groups = {}
     for pair in data.get("duplicates") or []:
+        if all(_only_imports(pair.get(side) or {}, cwd) for side in ("firstFile", "secondFile")):
+            continue
         fragment = pair.get("fragment") or ""
         fingerprint = hashlib.sha1(fragment.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
         instances = []

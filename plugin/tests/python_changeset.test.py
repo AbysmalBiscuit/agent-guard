@@ -39,6 +39,22 @@ OLD_CLONE = textwrap.dedent(
     """
 )
 
+IMPORTS = textwrap.dedent(
+    """\
+    import json
+    import os
+    import subprocess
+
+    # The shared helpers.
+    from hook_support import (
+        PLUGIN_ROOT,
+        requires_pinned,
+        run_hook,
+    )
+    from pathlib import Path
+    """
+)
+
 
 def commit_all(root, message):
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
@@ -208,6 +224,21 @@ TS_CLONE = textwrap.dedent(
     """
 )
 
+TS_IMPORTS = textwrap.dedent(
+    """\
+    import {
+      readFile,
+      // The writer stays sync.
+      writeFileSync,
+    } from "node:fs";
+    /* The shared helpers (paths and
+       the config). */
+    import path from "node:path";
+    import type { Config } from "./config";
+    import * as os from "node:os";
+    """
+)
+
 PYSCN = textwrap.dedent(
     """\
     fallow = false
@@ -280,6 +311,145 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertEqual(second.stdout, "")
 
     @requires_pinned("jscpd")
+    def test_jscpd_leaves_a_shared_import_block_out_of_the_report(self):
+        """Two added files that share only an import block, with comments and
+        a parenthesized import, give no clone finding."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            pkg = root / "pkg"
+            pkg.mkdir()
+            (pkg / "__init__.py").write_text("", encoding="utf-8")
+            commit_all(root, "base")
+            (pkg / "first.py").write_text(IMPORTS + "\nFIRST = 1\n", encoding="utf-8")
+            (pkg / "second.py").write_text(IMPORTS + "\nSECOND = 2\n", encoding="utf-8")
+            enable(root, JSCPD)
+
+            result = stop_hook(root, session="imports")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    @requires_pinned("jscpd")
+    def test_jscpd_reports_a_clone_that_runs_past_a_shared_import_block(self):
+        """A clone that starts in a shared import block and continues into a
+        duplicated function body is still reported."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            pkg = root / "pkg"
+            pkg.mkdir()
+            (pkg / "__init__.py").write_text("", encoding="utf-8")
+            commit_all(root, "base")
+            (pkg / "first.py").write_text(IMPORTS + "\n\n" + CLONE, encoding="utf-8")
+            (pkg / "second.py").write_text(IMPORTS + "\n\n" + CLONE, encoding="utf-8")
+            enable(root, JSCPD)
+
+            result = stop_hook(root, session="imports-and-body")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+        self.assertIn("pkg/first.py:", report)
+        self.assertIn("pkg/second.py:", report)
+
+    @requires_pinned("jscpd")
+    def test_jscpd_reports_starred_assignments_after_a_shared_import_block(self):
+        """A starred assignment such as `*head, tail = items` is code, not a
+        comment, so a clone of imports and starred assignments is reported."""
+        starred = "".join(f"*head{n}, tail{n} = items[{n}:]\n" for n in range(8))
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            pkg = root / "pkg"
+            pkg.mkdir()
+            (pkg / "__init__.py").write_text("", encoding="utf-8")
+            commit_all(root, "base")
+            body = IMPORTS + starred
+            (pkg / "first.py").write_text(body, encoding="utf-8")
+            (pkg / "second.py").write_text(body, encoding="utf-8")
+            enable(root, JSCPD)
+
+            result = stop_hook(root, session="imports-and-starred")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+
+    @requires_pinned("jscpd")
+    def test_jscpd_reports_a_clone_after_a_bracket_in_an_import_comment(self):
+        """A bracket inside a comment on an import line opens no continuation,
+        so the duplicated function after it is reported."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            pkg = root / "pkg"
+            pkg.mkdir()
+            (pkg / "__init__.py").write_text("", encoding="utf-8")
+            commit_all(root, "base")
+            body = "import json  # (\nimport os\n\n\n" + CLONE
+            (pkg / "first.py").write_text(body, encoding="utf-8")
+            (pkg / "second.py").write_text(body, encoding="utf-8")
+            enable(root, JSCPD)
+
+            result = stop_hook(root, session="import-comment-bracket")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+
+    @requires_pinned("jscpd")
+    def test_jscpd_reports_a_clone_after_an_import_line_in_a_docstring(self):
+        """A docstring line that starts with `from` and holds a bracket is no
+        import, so the duplicated function after the docstring is reported."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            pkg = root / "pkg"
+            pkg.mkdir()
+            (pkg / "__init__.py").write_text("", encoding="utf-8")
+            commit_all(root, "base")
+            for name in ("first", "second"):
+                docstring = f'"""The {name} work.\n\nfrom the notes (see the plan\n"""\n\n\n'
+                (pkg / f"{name}.py").write_text(docstring + CLONE, encoding="utf-8")
+            enable(root, JSCPD)
+
+            result = stop_hook(root, session="docstring-import")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+
+    @requires_pinned("jscpd")
+    def test_jscpd_reports_a_clone_that_shares_a_line_with_an_import(self):
+        """`import os; work = dict(` holds a statement that is no import, so
+        that line and the bracketed code after it are reported."""
+        entries = "".join(f"    key_{n}=os.path.join('a', '{n}'),\n" for n in range(10))
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            pkg = root / "pkg"
+            pkg.mkdir()
+            (pkg / "__init__.py").write_text("", encoding="utf-8")
+            commit_all(root, "base")
+            body = "import os; work = dict(\n" + entries + ")\n"
+            (pkg / "first.py").write_text(body, encoding="utf-8")
+            (pkg / "second.py").write_text(body, encoding="utf-8")
+            enable(root, JSCPD)
+
+            result = stop_hook(root, session="import-and-statement")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+
+    @requires_pinned("jscpd")
     def test_jscpd_reports_a_typescript_clone_on_an_added_line(self):
         """`\\.tsx?$` reports a clone across `.ts` and `.tsx`, naming both paths.
 
@@ -342,6 +512,51 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertIn("src/work.ts:1", report)
         self.assertIn("src/copy.tsx:1", report)
         self.assertNotIn(".py", report)
+
+    @requires_pinned("jscpd")
+    def test_jscpd_leaves_a_shared_typescript_import_block_out_of_the_report(self):
+        """Two added `.ts` files that share only a multi-line import block,
+        with comments inside it, give no clone finding."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            (root / "README.md").write_text("base\n", encoding="utf-8")
+            commit_all(root, "base")
+            src = root / "src"
+            src.mkdir()
+            (src / "first.ts").write_text(TS_IMPORTS + "\nconst first = 1;\n", encoding="utf-8")
+            (src / "second.ts").write_text(TS_IMPORTS + "\nlet second = 2;\n", encoding="utf-8")
+            enable(root, JSCPD_TS_ONLY)
+
+            result = stop_hook(root, session="ts-imports")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    @requires_pinned("jscpd")
+    def test_jscpd_reports_a_typescript_body_after_a_shared_import_block(self):
+        """A clone that runs from a shared `.ts` import block into a duplicated
+        function body is still reported."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            (root / "README.md").write_text("base\n", encoding="utf-8")
+            commit_all(root, "base")
+            src = root / "src"
+            src.mkdir()
+            (src / "first.ts").write_text(TS_IMPORTS + "\n" + TS_CLONE, encoding="utf-8")
+            (src / "second.ts").write_text(TS_IMPORTS + "\n" + TS_CLONE, encoding="utf-8")
+            enable(root, JSCPD_TS_ONLY)
+
+            result = stop_hook(root, session="ts-imports-and-body")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+        self.assertIn("src/first.ts:", report)
+        self.assertIn("src/second.ts:", report)
 
     @requires_pinned("jscpd")
     def test_jscpd_reports_an_mjs_clone_on_an_added_line(self):
