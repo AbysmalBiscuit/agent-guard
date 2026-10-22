@@ -107,7 +107,8 @@ class Release:
     requests: list[str] = field(default_factory=list)
 
     def listing(self):
-        name = f"{self.repo.split('/')[1]}-{TARGETS[(platform.system(), platform.machine())]}.tar.gz"
+        target = TARGETS[(platform.system(), platform.machine())]
+        name = f"{self.repo.split('/')[1]}-{target}.tar.gz"
         return {
             "tag_name": self.tag,
             "name": self.tag,
