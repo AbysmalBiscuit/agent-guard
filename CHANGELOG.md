@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.8](https://github.com/AbysmalBiscuit/agent-guard/compare/v0.1.7...v0.1.8) (2026-10-22)
+
+
+### Bug Fixes
+
+* **audit:** stop dead-code false positives ([#46](https://github.com/AbysmalBiscuit/agent-guard/issues/46)) ([81ffe34](https://github.com/AbysmalBiscuit/agent-guard/commit/81ffe34822752c044698e9f095e719c5721ce661)), closes [#44](https://github.com/AbysmalBiscuit/agent-guard/issues/44)
+* **plugin:** ignore import blocks in jscpd clones ([#47](https://github.com/AbysmalBiscuit/agent-guard/issues/47)) ([1d490c2](https://github.com/AbysmalBiscuit/agent-guard/commit/1d490c2e341eef0230963e24887a6f76b5c0e0bb)), closes [#43](https://github.com/AbysmalBiscuit/agent-guard/issues/43)
+
 ## [0.1.7](https://github.com/AbysmalBiscuit/agent-guard/compare/v0.1.6...v0.1.7) (2026-10-21)
 
 
