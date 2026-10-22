@@ -1,5 +1,5 @@
-# One source of the tool versions the audit runs. external.py reads these
-# versions. install.sh installs this file. A version appears here only.
+# The tool versions the audit runs. Change a version here, then lock it as
+# the README says. external.py reads these versions. install.sh installs them.
 
 # Each plugin call to mise trusts this file through MISE_TRUSTED_CONFIG_PATHS,
 # so these settings win over the machine's global mise config.
