@@ -285,27 +285,29 @@ class AttestationTests(unittest.TestCase):
             timeout=120,
         )
 
-    def assert_install_refused(self, result):
-        report = f"{result.stderr}\nrequests: {self.release.requests}"
-        self.assertEqual(result.returncode, 0, report)
-        self.assertIn("install.sh exited", result.stderr, report)
-        self.assertIn("requires github-attestations provenance", result.stderr, report)
-        self.assertTrue(any("/attestations" in r for r in self.release.requests), report)
-        failed = self.root / "state" / "agent-guard" / "bootstrap-failed"
-        self.assertTrue(failed.is_file(), report)
-
-    def assert_unlocked_pin_refused(self):
-        self.env.update(MISE_LOCKED="false", MISE_LOCKED_SCOPES="global")
+    def assert_bootstrap_refused(self, message, *, asked_for_attestations=False):
+        """The bootstrap exits 0, records the failure, and reports `message`."""
         result = self.bootstrap()
         report = f"{result.stderr}\nrequests: {self.release.requests}"
         self.assertEqual(result.returncode, 0, report)
         self.assertIn("install.sh exited", result.stderr, report)
-        self.assertIn("not in the lockfile", result.stderr, report)
+        self.assertIn(message, result.stderr, report)
         failed = self.root / "state" / "agent-guard" / "bootstrap-failed"
         self.assertTrue(failed.is_file(), report)
+        if asked_for_attestations:
+            self.assertTrue(any("/attestations" in r for r in self.release.requests), report)
+
+    def assert_install_refused(self):
+        self.assert_bootstrap_refused(
+            "requires github-attestations provenance", asked_for_attestations=True
+        )
+
+    def assert_unlocked_pin_refused(self):
+        self.env.update(MISE_LOCKED="false", MISE_LOCKED_SCOPES="global")
+        self.assert_bootstrap_refused("not in the lockfile")
 
     def test_an_install_without_an_attestation_fails_and_the_bootstrap_reports_it(self):
-        self.assert_install_refused(self.bootstrap())
+        self.assert_install_refused()
 
     def test_a_pin_with_no_lock_entry_fails_and_the_bootstrap_reports_it(self):
         copy_plugin(self.plugin, self.release.asset, locked=False)
@@ -338,7 +340,7 @@ class AttestationTests(unittest.TestCase):
                 check=True,
             )
             self.assertEqual(pinned.stdout.strip(), "true", setting)
-        self.assert_install_refused(self.bootstrap())
+        self.assert_install_refused()
 
     def test_a_machine_variable_does_not_turn_off_the_attestation_check(self):
         self.env.update(
@@ -347,7 +349,7 @@ class AttestationTests(unittest.TestCase):
             MISE_LOCKFILE="false",
             MISE_LOCKED_VERIFY_PROVENANCE="false",
         )
-        self.assert_install_refused(self.bootstrap())
+        self.assert_install_refused()
 
 
 if __name__ == "__main__":
