@@ -453,6 +453,38 @@ def find_lizard(changeset, slot):
     return AnalysisResult("\n".join(lines[: settings.max_findings]))
 
 
+def _test_entry_lines(cwd, rel):
+    """Lines of the definitions a test runner calls, which no code names:
+    `unittest.TestCase` subclasses, pytest `test_*` functions and `Test*`
+    classes, and the `test_*` methods of both classes. A decorated
+    definition covers its decorator lines too."""
+    try:
+        tree = ast.parse((cwd / rel).read_text(encoding="utf-8", errors="replace"))
+    except (OSError, SyntaxError, ValueError):
+        return set()
+    testcase = {"unittest.TestCase"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "unittest":
+            testcase.update(a.asname or a.name for a in node.names if a.name == "TestCase")
+    functions = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+    def tests_in(body):
+        return [n for n in body if isinstance(n, functions) and n.name.startswith("test_")]
+
+    entries = tests_in(tree.body)
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and (
+            node.name.startswith("Test")
+            or any(ast.unparse(base) in testcase for base in node.bases)
+        ):
+            entries += [node, *tests_in(node.body)]
+    lines = set()
+    for node in entries:
+        start = min([d.lineno for d in node.decorator_list] + [node.lineno])
+        lines.update(range(start, node.lineno + 1))
+    return lines
+
+
 def find_vulture(changeset, slot):
     """Dead code on a line the branch added."""
     analysis = changeset.settings.python["vulture"]
@@ -465,8 +497,15 @@ def find_vulture(changeset, slot):
     cmd = tool_argv("vulture", cwd)
     if cmd is None:
         return AnalysisResult()
+    # A caller in an unchanged module still uses a name, so vulture reads the
+    # whole selection. Findings stay limited to the changed files.
+    tree = sorted(
+        rel
+        for rel in jscpd_scan_files(changeset.changed, analysis.ext_re, cwd)
+        if not settings.ignore_re.search(rel) and (cwd / rel).is_file()
+    )
     whitelist = cwd / analysis.baseline
-    paths = [*files, str(whitelist)] if whitelist.is_file() else files
+    paths = [*tree, str(whitelist)] if whitelist.is_file() else tree
     raw = run_external(
         "vulture",
         [*cmd, *paths, "--min-confidence", str(analysis.min_confidence)],
@@ -476,6 +515,7 @@ def find_vulture(changeset, slot):
     # An import outranks a function, which outranks a name the file does use.
     rank = {"import": 0, "function": 1, "class": 1, "method": 1, "variable": 2, "attribute": 3}
     hits = []
+    discovered = {rel: _test_entry_lines(cwd, rel) for rel in files}
     for match in _VULTURE_HIT.finditer(raw):
         rel = _rel(match.group(1), cwd)
         number = int(match.group(2))
@@ -486,6 +526,8 @@ def find_vulture(changeset, slot):
             continue
         added = _added_lines(changeset.diff_for(rel))
         if added is not None and number not in added:
+            continue
+        if number in discovered[rel]:
             continue
         hits.append((rank.get(kind, 4), -confidence, number, rel, name))
     hits.sort()
