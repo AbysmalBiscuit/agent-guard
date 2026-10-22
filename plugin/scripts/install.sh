@@ -26,6 +26,7 @@ export MISE_TRUSTED_CONFIG_PATHS="${MISE_TRUSTED_CONFIG_PATHS:+${MISE_TRUSTED_CO
 # The [settings] of mise.toml win over the machine's config files, but not
 # over its MISE_* variables. These win over both.
 export MISE_GITHUB_ATTESTATIONS=true MISE_GITHUB_GITHUB_ATTESTATIONS=true
+export MISE_AQUA_GITHUB_ATTESTATIONS=true
 export MISE_LOCKFILE=true MISE_LOCKED_VERIFY_PROVENANCE=true
 export MISE_LOCKED_SCOPES=project
 

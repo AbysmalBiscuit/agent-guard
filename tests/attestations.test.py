@@ -313,11 +313,16 @@ class AttestationTests(unittest.TestCase):
             "[settings]\n"
             "github_attestations = false\n"
             "github.github_attestations = false\n"
+            "aqua.github_attestations = false\n"
             "lockfile = false\n"
             "locked_verify_provenance = false\n",
             encoding="utf-8",
         )
-        for setting in ("github_attestations", "github.github_attestations"):
+        for setting in (
+            "github_attestations",
+            "github.github_attestations",
+            "aqua.github_attestations",
+        ):
             pinned = subprocess.run(
                 ["mise", "-C", str(self.plugin), "settings", "get", setting],
                 capture_output=True,

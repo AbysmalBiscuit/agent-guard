@@ -6,6 +6,7 @@
 [settings]
 github_attestations = true
 github.github_attestations = true
+aqua.github_attestations = true
 lockfile = true
 locked_verify_provenance = true
 
