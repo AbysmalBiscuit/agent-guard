@@ -454,10 +454,10 @@ def find_lizard(changeset, slot):
 
 
 def _test_entry_lines(cwd, rel):
-    """Lines of the definitions a test runner calls, which no code names:
-    `unittest.TestCase` subclasses, pytest `test_*` functions and `Test*`
-    classes, and the `test_*` methods of both classes. A decorated
-    definition covers its decorator lines too."""
+    """Lines of the `unittest.TestCase` subclasses and their `test_*` methods,
+    which a test runner calls and no code names. Vulture already skips
+    pytest names in test files. A decorated definition covers its decorator
+    lines too."""
     try:
         tree = ast.parse((cwd / rel).read_text(encoding="utf-8", errors="replace"))
     except (OSError, SyntaxError, ValueError):
@@ -467,17 +467,15 @@ def _test_entry_lines(cwd, rel):
         if isinstance(node, ast.ImportFrom) and node.module == "unittest":
             testcase.update(a.asname or a.name for a in node.names if a.name == "TestCase")
     functions = (ast.FunctionDef, ast.AsyncFunctionDef)
-
-    def tests_in(body):
-        return [n for n in body if isinstance(n, functions) and n.name.startswith("test_")]
-
-    entries = tests_in(tree.body)
+    entries = []
     for node in tree.body:
-        if isinstance(node, ast.ClassDef) and (
-            node.name.startswith("Test")
-            or any(ast.unparse(base) in testcase for base in node.bases)
+        if isinstance(node, ast.ClassDef) and any(
+            ast.unparse(base) in testcase for base in node.bases
         ):
-            entries += [node, *tests_in(node.body)]
+            tests = [
+                n for n in node.body if isinstance(n, functions) and n.name.startswith("test_")
+            ]
+            entries += [node, *tests]
     lines = set()
     for node in entries:
         start = min([d.lineno for d in node.decorator_list] + [node.lineno])

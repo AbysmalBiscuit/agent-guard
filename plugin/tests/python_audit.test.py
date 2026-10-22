@@ -615,6 +615,22 @@ class PythonAuditTests(unittest.TestCase):
         self.assertIn("spare is unused", out)
         self.assertIn("leftover is unused", out)
 
+    @requires_pinned("vulture")
+    def test_vulture_reports_pytest_names_outside_test_files(self):
+        added = textwrap.dedent(
+            """\
+            def test_connection():
+                return 1
+
+
+            class TestPool:
+                pass
+            """
+        )
+        out = self.added_file("src/db.py", added)
+        self.assertIn("test_connection is unused", out)
+        self.assertIn("TestPool is unused", out)
+
     def cross_module(self):
         """author.py gains `env_of`, which only the unchanged run_status.py
         calls, and `never_called`, which no file calls. Unchanged lines hold
