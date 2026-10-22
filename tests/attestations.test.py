@@ -23,7 +23,6 @@ from pathlib import Path
 from hook_support import PLUGIN_ROOT
 
 GITHUB_HOSTS = ("github.com", "api.github.com", "mise-versions.jdx.dev")
-AQUA_REPOS = {"uv": "astral-sh/uv"}
 TARGETS = {
     ("Linux", "x86_64"): "x86_64-unknown-linux-gnu",
     ("Linux", "aarch64"): "aarch64-unknown-linux-gnu",
@@ -34,12 +33,13 @@ TARGETS = {
 
 def pinned_release(pin, asset):
     """The release of the first tool whose name starts with `pin`, at the
-    version `mise.toml` pins. A `github:` tool tags its releases `v<version>`."""
+    version `mise.toml` pins, from the repository its `mise.lock` backend
+    names. A `github:` tool tags its releases `v<version>`."""
     tools = tomllib.loads((PLUGIN_ROOT / "mise.toml").read_text(encoding="utf-8"))["tools"]
     name, version = next(item for item in tools.items() if item[0].startswith(pin))
-    if name.startswith("github:"):
-        return Release(name.removeprefix("github:"), f"v{version}", asset)
-    return Release(AQUA_REPOS[name], version, asset)
+    lock = tomllib.loads((PLUGIN_ROOT / "mise.lock").read_text(encoding="utf-8"))["tools"]
+    kind, repo = lock[name][0]["backend"].split(":", 1)
+    return Release(repo, f"v{version}" if kind == "github" else version, asset)
 
 
 def fixture_asset():
