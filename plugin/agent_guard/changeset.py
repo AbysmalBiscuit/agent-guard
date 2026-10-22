@@ -498,9 +498,9 @@ def find_vulture(changeset, slot):
     # A caller in an unchanged module still uses a name, so vulture reads the
     # whole selection. Findings stay limited to the changed files.
     tree = sorted(
-        rel
-        for rel in jscpd_scan_files(changeset.changed, analysis.ext_re, cwd)
-        if not settings.ignore_re.search(rel) and (cwd / rel).is_file()
+        _selected(
+            jscpd_scan_files(changeset.changed, analysis.ext_re, cwd), analysis, settings, cwd
+        )
     )
     whitelist = cwd / analysis.baseline
     paths = [*tree, str(whitelist)] if whitelist.is_file() else tree
