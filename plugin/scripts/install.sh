@@ -21,6 +21,14 @@ if [ ! -f "$MISE_CONFIG" ]; then
 	die "mise config missing: ${MISE_CONFIG}"
 fi
 
+# An older mise fails each locked pin as "not in the lockfile", which hides
+# the cause.
+required=$(sed -n 's/^min_version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$MISE_CONFIG")
+found=$(mise --version 2>/dev/null | awk 'NR == 1 { print $1 }')
+if [ -n "$required" ] && [ "$(printf '%s\n%s\n' "$required" "$found" | sort -V | head -1)" != "$required" ]; then
+	die "the plugin needs mise ${required} or newer, found ${found:-an unknown version}; run \`mise self-update\`, then run this script again"
+fi
+
 export MISE_TRUSTED_CONFIG_PATHS="${MISE_TRUSTED_CONFIG_PATHS:+${MISE_TRUSTED_CONFIG_PATHS}:}${PLUGIN_ROOT}"
 
 # The [settings] of mise.toml win over the machine's config files, but not
