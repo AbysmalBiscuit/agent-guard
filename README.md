@@ -50,7 +50,7 @@ These tools are optional. Each feature stays silent when its tool is missing:
 
 | Tool | Used for |
 |---|---|
-| `mise` | installs every pinned tool, and is what the audit runs them through |
+| `mise` 2026.9.16 or newer | installs every pinned tool, and is what the audit runs them through |
 | `ast-grep` | the `rules/` layer |
 | `fallow` | the Stop-time changeset audit for TypeScript and JavaScript |
 | `git` | limiting findings to the lines the branch introduced |
@@ -72,6 +72,8 @@ bash plugin/scripts/install.sh
 ```
 
 The script runs `mise install` for each tool in `plugin/mise.toml`, and for no tool of another mise config, such as the global one. A copy already on `PATH` does not win: mise installs the pin anyway. When mise is missing, the script says so and stops.
+
+The script needs mise 2026.9.16 or newer, the `min_version` in `plugin/mise.toml`. An older mise cannot read `plugin/mise.lock`. With an older mise, the script names the required version and stops. Run `mise self-update`, then run the script again.
 
 At session start, `hooks/bootstrap-tools` runs that script. The session start hook differs from a manual run in two ways:
 
