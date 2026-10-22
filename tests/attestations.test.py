@@ -374,5 +374,59 @@ class AttestationTests(unittest.TestCase):
         self.assert_install_refused()
 
 
+# ast-grep publishes its releases with no GitHub attestations.
+NO_ATTESTATIONS = {"aqua:ast-grep/ast-grep"}
+
+
+def unattested_entries(lock):
+    """Each `github:` or `aqua:` platform entry in `lock` with no `provenance`,
+    except for the backends in `NO_ATTESTATIONS`."""
+    return [
+        f"{name}@{entry['version']} {key}"
+        for name, entries in lock["tools"].items()
+        for entry in entries
+        if entry["backend"].startswith(("github:", "aqua:"))
+        and entry["backend"] not in NO_ATTESTATIONS
+        for key, platform in entry.items()
+        if key.startswith("platforms.") and "provenance" not in platform
+    ]
+
+
+class LockProvenanceTests(unittest.TestCase):
+    """A `mise lock` run that took a wrong "no attestations" answer writes
+    `github:` or `aqua:` entries with no `provenance`. The install then trusts
+    them with no attestation check, so the lockfile must not carry them."""
+
+    def test_an_entry_with_no_provenance_fails_the_check(self):
+        lock = tomllib.loads(
+            '[[tools."github:owner/tool"]]\n'
+            'version = "1.0.0"\n'
+            'backend = "github:owner/tool"\n'
+            '[tools."github:owner/tool"."platforms.linux-x64"]\n'
+            'checksum = "sha256:00"\n'
+            "[[tools.other]]\n"
+            'version = "2.0.0"\n'
+            'backend = "aqua:owner/other"\n'
+            '[tools.other."platforms.linux-x64"]\n'
+            'checksum = "sha256:11"\n'
+            'provenance = "github-attestations"\n'
+            '[tools.other."platforms.macos-arm64"]\n'
+            'checksum = "sha256:22"\n'
+            "[[tools.node]]\n"
+            'version = "3.0.0"\n'
+            'backend = "core:node"\n'
+            '[tools.node."platforms.linux-x64"]\n'
+            'checksum = "sha256:33"\n'
+        )
+        self.assertEqual(
+            unattested_entries(lock),
+            ["github:owner/tool@1.0.0 platforms.linux-x64", "other@2.0.0 platforms.macos-arm64"],
+        )
+
+    def test_the_plugin_lockfile_records_provenance_for_each_github_entry(self):
+        lock = tomllib.loads((PLUGIN_ROOT / "mise.lock").read_text(encoding="utf-8"))
+        self.assertEqual(unattested_entries(lock), [])
+
+
 if __name__ == "__main__":
     unittest.main()
