@@ -280,7 +280,7 @@ class AttestationTests(unittest.TestCase):
         report = f"{result.stderr}\nrequests: {self.release.requests}"
         self.assertEqual(result.returncode, 0, report)
         self.assertIn("install.sh exited", result.stderr, report)
-        self.assertIn("attestations", result.stderr, report)
+        self.assertIn("requires github-attestations provenance", result.stderr, report)
         self.assertTrue(any("/attestations" in r for r in self.release.requests), report)
         failed = self.root / "state" / "agent-guard" / "bootstrap-failed"
         self.assertTrue(failed.is_file(), report)
