@@ -520,32 +520,38 @@ def _on_added_line(instance, line_count, added):
 
 _IMPORT_START = re.compile(r"(import|from)[\s{\"'*]")
 _STRING = r""""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'"""
-_PYTHON_TOKEN = re.compile(rf"#.*|{_STRING}")
-_C_TOKEN = re.compile(rf"//.*|/\*.*?(?P<close>\*/|$)|{_STRING}|`(?:\\.|[^`\\])*`")
+_PYTHON_TOKEN = re.compile(rf"#.*|(?P<open>\"\"\"|''')(?:\\.|.)*?(?P<close>(?P=open)|$)|{_STRING}")
+_C_TOKEN = re.compile(rf"//.*|(?P<open>/\*|`)(?:\\.|.)*?(?P<close>\*/|`|$)|{_STRING}")
+_CLOSERS = {"/*": "*/", "`": "`", '"""': '"""', "'''": "'''"}
 
 
-def _code_of(line, python, in_comment):
-    """The line with its comments removed and each string emptied, and whether
-    a block comment is still open at its end."""
-    if in_comment:
-        end = line.find("*/")
-        if end < 0:
-            return "", True
-        line = line[end + 2 :]
-    still_open = False
+def _code_of(line, python, closer):
+    """The line with its comments removed and each string emptied, and the
+    closer of a block comment or multi-line string still open at its end."""
+    prefix = ""
+    if closer:
+        end = re.match(rf"(?:\\.|.)*?{re.escape(closer)}", line)
+        emptied = " " if closer == "*/" else '""'
+        if not end:
+            return emptied.strip(), closer
+        prefix = emptied
+        line = line[end.end() :]
+    still_open = None
 
     def strip(match):
         nonlocal still_open
         token = match.group()
-        if token.startswith("/*"):
-            still_open = not match.group("close")
-            return " "
+        opener = match.group("open")
+        if opener:
+            if not match.group("close"):
+                still_open = _CLOSERS[opener]
+            return " " if opener == "/*" else '""'
         if token.startswith(("#", "//")):
             return ""
         return '""'
 
     code = (_PYTHON_TOKEN if python else _C_TOKEN).sub(strip, line)
-    return code.strip(), still_open
+    return (prefix + code).strip(), still_open
 
 
 def _import_line_numbers(lines, python):
@@ -557,9 +563,9 @@ def _import_line_numbers(lines, python):
     numbers = set()
     depth = 0
     continued = False
-    in_comment = False
+    closer = None
     for number, line in enumerate(lines, start=1):
-        code, in_comment = _code_of(line, python, in_comment)
+        code, closer = _code_of(line, python, closer)
         inside = depth or continued
         if not inside and code and not _IMPORT_START.match(code):
             continue

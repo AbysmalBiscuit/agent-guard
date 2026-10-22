@@ -388,6 +388,29 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertIn("duplicated lines across 2 sites (", report)
 
     @requires_pinned("jscpd")
+    def test_jscpd_reports_a_clone_after_an_import_line_in_a_docstring(self):
+        """A docstring line that starts with `from` and holds a bracket is no
+        import, so the duplicated function after the docstring is reported."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            pkg = root / "pkg"
+            pkg.mkdir()
+            (pkg / "__init__.py").write_text("", encoding="utf-8")
+            commit_all(root, "base")
+            for name in ("first", "second"):
+                docstring = f'"""The {name} work.\n\nfrom the notes (see the plan\n"""\n\n\n'
+                (pkg / f"{name}.py").write_text(docstring + CLONE, encoding="utf-8")
+            enable(root, JSCPD)
+
+            result = stop_hook(root, session="docstring-import")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+
+    @requires_pinned("jscpd")
     def test_jscpd_reports_a_typescript_clone_on_an_added_line(self):
         """`\\.tsx?$` reports a clone across `.ts` and `.tsx`, naming both paths.
 
