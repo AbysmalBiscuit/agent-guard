@@ -55,7 +55,15 @@ These tools are optional. Each feature stays silent when its tool is missing:
 | `fallow` | the Stop-time changeset audit for TypeScript and JavaScript |
 | `git` | limiting findings to the lines the branch introduced |
 
-`plugin/mise.toml` pins each tool and its version. That file is the only place a version appears. fallow comes from the `github:` backend, which serves the prebuilt release. The Python audit tools and jscpd come from mise too.
+`plugin/mise.toml` pins each tool and its version. That file is the only place you change a version. fallow comes from the `github:` backend, which serves the prebuilt release. The Python audit tools and jscpd come from mise too.
+
+`plugin/mise.lock` records the URL and the checksum of each download, and the provenance of a download that has one. `plugin/.mise/locks/` holds the npm and Python dependency locks. `install.sh` sets the mise settings in its environment, so they win over the machine's mise settings. Some lock entries record `provenance = "github-attestations"`. For each of these downloads, each install verifies the GitHub attestation again, and an install with no attestation fails. A test fails when a `github:` or `aqua:` lock entry has no `provenance`, unless the test lists its tool as one that publishes no attestations. Thus a lock that `mise lock` writes after a wrong "no attestations" answer fails CI. An install of a tool with no lock entry also fails. After a version change, run this command from the repository root for the changed tool, then commit the files that mise writes:
+
+```sh
+MISE_TRUSTED_CONFIG_PATHS="$PWD/plugin" mise -C plugin lock <tool>
+```
+
+`plugin/mise.toml` has a `[settings]` table, so mise loads it only when it trusts the file. `MISE_TRUSTED_CONFIG_PATHS` gives that trust, as in `install.sh`.
 
 Install mise, then install the pins:
 

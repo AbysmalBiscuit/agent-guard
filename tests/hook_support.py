@@ -20,6 +20,9 @@ os.environ.setdefault(
     "MISE_DATA_DIR",
     str(Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "mise"),
 )
+# Under a temporary HOME, the real HOME's mise config is no longer global, so
+# mise reads it as an untrusted project config above a checkout in that HOME.
+os.environ.setdefault("MISE_CEILING_PATHS", str(PLUGIN_ROOT.parent))
 
 
 def requires_pinned(name):

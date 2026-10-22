@@ -23,6 +23,8 @@ if ! command -v mise >/dev/null 2>&1; then
 	exit 0
 fi
 
+export MISE_TRUSTED_CONFIG_PATHS="${MISE_TRUSTED_CONFIG_PATHS:+${MISE_TRUSTED_CONFIG_PATHS}:}${PLUGIN_ROOT}"
+
 # Nothing to do and nothing to say when every pin is installed. A failed
 # listing falls through to install.sh, which reports the error.
 if missing=$(mise -C "$PLUGIN_ROOT" ls --local --missing 2>/dev/null) && [ -z "$missing" ]; then

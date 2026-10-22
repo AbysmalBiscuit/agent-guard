@@ -21,6 +21,16 @@ if [ ! -f "$MISE_CONFIG" ]; then
 	die "mise config missing: ${MISE_CONFIG}"
 fi
 
+export MISE_TRUSTED_CONFIG_PATHS="${MISE_TRUSTED_CONFIG_PATHS:+${MISE_TRUSTED_CONFIG_PATHS}:}${PLUGIN_ROOT}"
+
+# The [settings] of mise.toml win over the machine's config files, but not
+# over its MISE_* variables. These win over both.
+export MISE_GITHUB_ATTESTATIONS=true MISE_GITHUB_GITHUB_ATTESTATIONS=true
+export MISE_AQUA_GITHUB_ATTESTATIONS=true
+export MISE_LOCKFILE=true MISE_LOCKED_VERIFY_PROVENANCE=true
+# Locked mode fails a pin with no lock entry.
+export MISE_LOCKED=true MISE_LOCKED_SCOPES=project
+
 # A bare `mise install` also installs the tools of every other config mise
 # loads, such as the user's global one. Name this config's tools instead.
 mapfile -t tools < <(mise -C "$PLUGIN_ROOT" ls --local | awk '{ print $1 }')
