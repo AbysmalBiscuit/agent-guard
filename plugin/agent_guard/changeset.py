@@ -559,7 +559,8 @@ def _import_line_numbers(lines, python):
 
     An import continues while a bracket stays open or a line ends in `\\`, so
     a parenthesized Python import and a multi-line JS import both count.
-    Brackets inside comments and strings do not count."""
+    Brackets inside comments and strings do not count. A line that also holds
+    a statement other than an import is code, and ends the continuation."""
     numbers = set()
     depth = 0
     continued = False
@@ -567,7 +568,10 @@ def _import_line_numbers(lines, python):
     for number, line in enumerate(lines, start=1):
         code, closer = _code_of(line, python, closer)
         inside = depth or continued
-        if not inside and code and not _IMPORT_START.match(code):
+        statements = [s.strip() for s in code.split(";")][1 if inside else 0 :]
+        if any(s and not _IMPORT_START.match(s) for s in statements):
+            depth = 0
+            continued = False
             continue
         numbers.add(number)
         if inside or code:

@@ -411,6 +411,30 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertIn("duplicated lines across 2 sites (", report)
 
     @requires_pinned("jscpd")
+    def test_jscpd_reports_a_clone_that_shares_a_line_with_an_import(self):
+        """`import os; work = dict(` holds a statement that is no import, so
+        that line and the bracketed code after it are reported."""
+        entries = "".join(f"    key_{n}=os.path.join('a', '{n}'),\n" for n in range(10))
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            init_repo(root)
+            pkg = root / "pkg"
+            pkg.mkdir()
+            (pkg / "__init__.py").write_text("", encoding="utf-8")
+            commit_all(root, "base")
+            body = "import os; work = dict(\n" + entries + ")\n"
+            (pkg / "first.py").write_text(body, encoding="utf-8")
+            (pkg / "second.py").write_text(body, encoding="utf-8")
+            enable(root, JSCPD)
+
+            result = stop_hook(root, session="import-and-statement")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("duplicated lines across 2 sites (", report)
+
+    @requires_pinned("jscpd")
     def test_jscpd_reports_a_typescript_clone_on_an_added_line(self):
         """`\\.tsx?$` reports a clone across `.ts` and `.tsx`, naming both paths.
 
