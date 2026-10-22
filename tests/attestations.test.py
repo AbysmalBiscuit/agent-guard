@@ -380,16 +380,23 @@ NO_ATTESTATIONS = {"aqua:ast-grep/ast-grep"}
 
 def unattested_entries(lock):
     """Each `github:` or `aqua:` platform entry in `lock` with no `provenance`,
-    except for the backends in `NO_ATTESTATIONS`."""
-    return [
-        f"{name}@{entry['version']} {key}"
-        for name, entries in lock["tools"].items()
-        for entry in entries
-        if entry["backend"].startswith(("github:", "aqua:"))
-        and entry["backend"] not in NO_ATTESTATIONS
-        for key, platform in entry.items()
-        if key.startswith("platforms.") and "provenance" not in platform
-    ]
+    and each such tool entry with no platform entries, except for the backends
+    in `NO_ATTESTATIONS`."""
+    found = []
+    for name, entries in lock["tools"].items():
+        for entry in entries:
+            backend = entry["backend"]
+            if not backend.startswith(("github:", "aqua:")) or backend in NO_ATTESTATIONS:
+                continue
+            platforms = {key: value for key, value in entry.items() if key.startswith("platforms.")}
+            if not platforms:
+                found.append(f"{name}@{entry['version']} no platforms")
+            found += [
+                f"{name}@{entry['version']} {key}"
+                for key, platform in platforms.items()
+                if "provenance" not in platform
+            ]
+    return found
 
 
 class LockProvenanceTests(unittest.TestCase):
@@ -417,10 +424,17 @@ class LockProvenanceTests(unittest.TestCase):
             'backend = "core:node"\n'
             '[tools.node."platforms.linux-x64"]\n'
             'checksum = "sha256:33"\n'
+            '[[tools."github:owner/bare"]]\n'
+            'version = "4.0.0"\n'
+            'backend = "github:owner/bare"\n'
         )
         self.assertEqual(
             unattested_entries(lock),
-            ["github:owner/tool@1.0.0 platforms.linux-x64", "other@2.0.0 platforms.macos-arm64"],
+            [
+                "github:owner/tool@1.0.0 platforms.linux-x64",
+                "other@2.0.0 platforms.macos-arm64",
+                "github:owner/bare@4.0.0 no platforms",
+            ],
         )
 
     def test_the_plugin_lockfile_records_provenance_for_each_github_entry(self):
