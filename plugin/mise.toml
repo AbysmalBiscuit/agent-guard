@@ -13,7 +13,7 @@ locked_verify_provenance = true
 [tools]
 "github:fallow-rs/fallow" = "3.34.1"
 ast-grep = "0.45.3"
-uv = "0.11.26"
+uv = "0.13.4"
 "pipx:complexipy" = "8.0.1"
 "pipx:lizard" = "1.24.1"
 "pipx:vulture" = "2.16"

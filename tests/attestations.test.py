@@ -203,11 +203,11 @@ def start_proxy(test, release, certificate, key):
     return f"http://127.0.0.1:{server.server_address[1]}"
 
 
-def copy_plugin(destination, asset, *, lock_github=True):
-    """The plugin's install files, with only its `github:` tools pinned. The
+def copy_plugin(destination, asset, *, backend="github:", locked=True):
+    """The plugin's install files, with only its `backend` tools pinned. The
     lockfile, when the plugin has one, records the fixture's checksum, as a
     release whose asset matches its pin but carries no attestation. With
-    `lock_github` false, the lockfile has no entry for the `github:` tools."""
+    `locked` false, the lockfile has no entry for the `backend` tools."""
     for relative in ("scripts/install.sh", "hooks/bootstrap-tools", ".claude-plugin/plugin.json"):
         (destination / relative).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(PLUGIN_ROOT / relative, destination / relative)
@@ -215,7 +215,7 @@ def copy_plugin(destination, asset, *, lock_github=True):
     for line in (PLUGIN_ROOT / "mise.toml").read_text(encoding="utf-8").splitlines():
         if line.startswith("["):
             section = line.strip()
-        if section == "[tools]" and "=" in line and not line.startswith('"github:'):
+        if section == "[tools]" and "=" in line and not line.startswith(f'"{backend}'):
             continue
         lines.append(line)
     (destination / "mise.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -229,12 +229,12 @@ def copy_plugin(destination, asset, *, lock_github=True):
                     for key, value in entry.items():
                         if key.startswith("platforms.") and "checksum" in value:
                             text = text.replace(value["checksum"], fixture)
-        if not lock_github:
+        if not locked:
             kept, section = [], ""
             for line in text.splitlines():
                 if line.startswith("["):
                     section = line.lstrip("[")
-                if not section.startswith('tools."github:'):
+                if not section.startswith(f'tools."{backend}'):
                     kept.append(line)
             text = "\n".join(kept) + "\n"
         (destination / "mise.lock").write_text(text, encoding="utf-8")
@@ -294,11 +294,7 @@ class AttestationTests(unittest.TestCase):
         failed = self.root / "state" / "agent-guard" / "bootstrap-failed"
         self.assertTrue(failed.is_file(), report)
 
-    def test_an_install_without_an_attestation_fails_and_the_bootstrap_reports_it(self):
-        self.assert_install_refused(self.bootstrap())
-
-    def test_a_pin_with_no_lock_entry_fails_and_the_bootstrap_reports_it(self):
-        copy_plugin(self.plugin, self.release.asset, lock_github=False)
+    def assert_unlocked_pin_refused(self):
         self.env.update(MISE_LOCKED="false", MISE_LOCKED_SCOPES="global")
         result = self.bootstrap()
         report = f"{result.stderr}\nrequests: {self.release.requests}"
@@ -307,6 +303,17 @@ class AttestationTests(unittest.TestCase):
         self.assertIn("not in the lockfile", result.stderr, report)
         failed = self.root / "state" / "agent-guard" / "bootstrap-failed"
         self.assertTrue(failed.is_file(), report)
+
+    def test_an_install_without_an_attestation_fails_and_the_bootstrap_reports_it(self):
+        self.assert_install_refused(self.bootstrap())
+
+    def test_a_pin_with_no_lock_entry_fails_and_the_bootstrap_reports_it(self):
+        copy_plugin(self.plugin, self.release.asset, locked=False)
+        self.assert_unlocked_pin_refused()
+
+    def test_a_pipx_pin_with_no_lock_entry_fails_and_the_bootstrap_reports_it(self):
+        copy_plugin(self.plugin, self.release.asset, backend="pipx:", locked=False)
+        self.assert_unlocked_pin_refused()
 
     def test_a_machine_setting_does_not_turn_off_the_attestation_check(self):
         self.machine_config.write_text(

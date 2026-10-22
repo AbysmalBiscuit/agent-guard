@@ -28,7 +28,8 @@ export MISE_TRUSTED_CONFIG_PATHS="${MISE_TRUSTED_CONFIG_PATHS:+${MISE_TRUSTED_CO
 export MISE_GITHUB_ATTESTATIONS=true MISE_GITHUB_GITHUB_ATTESTATIONS=true
 export MISE_AQUA_GITHUB_ATTESTATIONS=true
 export MISE_LOCKFILE=true MISE_LOCKED_VERIFY_PROVENANCE=true
-export MISE_LOCKED_SCOPES=project
+# Locked mode fails a pin with no lock entry.
+export MISE_LOCKED=true MISE_LOCKED_SCOPES=project
 
 # A bare `mise install` also installs the tools of every other config mise
 # loads, such as the user's global one. Name this config's tools instead.
@@ -37,21 +38,6 @@ if [ "${#tools[@]}" -eq 0 ]; then
 	die "mise lists no tools in ${MISE_CONFIG}"
 fi
 
-# Locked mode fails a pin with no lock entry. Locking a `pipx:` tool needs
-# uv 0.12.10 or later, so those tools install unlocked.
-locked=() unlocked=()
-for tool in "${tools[@]}"; do
-	case "$tool" in
-	pipx:*) unlocked+=("$tool") ;;
-	*) locked+=("$tool") ;;
-	esac
-done
-
 say "installing tools from ${MISE_CONFIG}"
-if [ "${#locked[@]}" -gt 0 ]; then
-	MISE_LOCKED=true mise -C "$PLUGIN_ROOT" install "${locked[@]}"
-fi
-if [ "${#unlocked[@]}" -gt 0 ]; then
-	MISE_LOCKED=false mise -C "$PLUGIN_ROOT" install "${unlocked[@]}"
-fi
+mise -C "$PLUGIN_ROOT" install "${tools[@]}"
 say "installed $(mise -C "$PLUGIN_ROOT" which fallow)"

@@ -1,0 +1,28 @@
+version = 1
+revision = 5
+requires-python = ">=3.8"
+
+[options]
+exclude-newer = "2026-10-21T16:24:07.45900962Z"
+
+[[package]]
+name = "mise-pypi-tool-environment"
+version = "0.0.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "pyscn" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pyscn", specifier = "==1.32.5" }]
+
+[[package]]
+name = "pyscn"
+version = "1.32.5"
+source = { registry = "https://pypi.org/simple/" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/10/23/160153930e284ddda8946c0b71c2c0edcf2881374731d207a0ff226c9ca2/pyscn-1.32.5-py3-none-macosx_11_0_arm64.whl", hash = "sha256:01e403c784e032a52ed06a40bd63a08b9958d9da1d76e588af0b6de052c16ad5", size = 10313634, upload-time = "2026-10-15T22:44:23.438Z" },
+    { url = "https://files.pythonhosted.org/packages/52/5a/a7eb48649299e806c9b5b4d4168243033307c71350adaa87b46441acd359/pyscn-1.32.5-py3-none-manylinux_2_34_aarch64.whl", hash = "sha256:811efaac486bb29569dd7b98d3da9a8931802bb2e837b3844a13201c08e03399", size = 10126531, upload-time = "2026-10-15T22:44:25.545Z" },
+    { url = "https://files.pythonhosted.org/packages/3d/22/ad247c8679777a6d6e108bf8bebcdf73c6b58def56637cd41412f52a42cb/pyscn-1.32.5-py3-none-manylinux_2_34_x86_64.whl", hash = "sha256:4be2a97d899d8843f71f68ecad1a024e74f8726144b1ffbb5c03fa2fb503764a", size = 11256256, upload-time = "2026-10-15T22:44:27.77Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/aa/6705590fc7cb99d6688ee8b430d87674f0dd83b277be092aa0d5ec94d2d2/pyscn-1.32.5-py3-none-win_amd64.whl", hash = "sha256:da8d0f46ea4297d1f5c800d05499b140a9862e75e06833d4d756dcf6f6a35053", size = 12229795, upload-time = "2026-10-15T22:44:29.627Z" },
+]
