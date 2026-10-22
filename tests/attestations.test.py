@@ -308,6 +308,15 @@ class AttestationTests(unittest.TestCase):
             self.assertEqual(pinned.stdout.strip(), "true", setting)
         self.assert_install_refused(self.bootstrap())
 
+    def test_a_machine_variable_does_not_turn_off_the_attestation_check(self):
+        self.env.update(
+            MISE_GITHUB_ATTESTATIONS="false",
+            MISE_GITHUB_GITHUB_ATTESTATIONS="false",
+            MISE_LOCKFILE="false",
+            MISE_LOCKED_VERIFY_PROVENANCE="false",
+        )
+        self.assert_install_refused(self.bootstrap())
+
 
 if __name__ == "__main__":
     unittest.main()
