@@ -21,6 +21,11 @@ if [ ! -f "$MISE_CONFIG" ]; then
 	die "mise config missing: ${MISE_CONFIG}"
 fi
 
+# These win over the machine's mise settings: an install fails unless mise
+# verifies again the provenance that mise.lock records, such as an attestation.
+export MISE_GITHUB_ATTESTATIONS=true MISE_GITHUB_GITHUB_ATTESTATIONS=true
+export MISE_LOCKFILE=true MISE_LOCKED_VERIFY_PROVENANCE=true
+
 # A bare `mise install` also installs the tools of every other config mise
 # loads, such as the user's global one. Name this config's tools instead.
 mapfile -t tools < <(mise -C "$PLUGIN_ROOT" ls --local | awk '{ print $1 }')

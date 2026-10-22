@@ -1,5 +1,6 @@
 # One source of the tool versions the audit runs. external.py reads these
-# versions. install.sh installs this file. A version appears here only.
+# versions. install.sh installs this file and sets the mise settings, since
+# mise loads a config with a [settings] table only once it is trusted.
 
 [tools]
 "github:fallow-rs/fallow" = "3.34.1"
