@@ -18,7 +18,7 @@ from pathlib import Path
 
 from .config import JSCPD_MAX_SIZE, JSCPD_MIN_LINES, JSCPD_MIN_TOKENS, _int
 from .contract import SILENT, advised, denied, git_base
-from .external import run_external, tool_argv
+from .external import run_external, tool_argv, try_external
 from .file_checks import run_changeset_checks
 from .paths import BARREL_OR_TEST, STATE_DIR, TEST_PATH
 from .process import (
@@ -307,7 +307,7 @@ def _baselined_complexipy(cwd, analysis, rel, name):
 
 
 def _selected(changed, analysis, settings, cwd):
-    """Changed files this analysis reads, minus generated and vendored paths."""
+    """The paths this analysis reads, minus generated and vendored paths."""
     selected = []
     for rel in changed:
         if not analysis.ext_re.search(rel) or settings.ignore_re.search(rel):
@@ -453,6 +453,36 @@ def find_lizard(changeset, slot):
     return AnalysisResult("\n".join(lines[: settings.max_findings]))
 
 
+def _test_entry_lines(cwd, rel):
+    """Lines of the `unittest.TestCase` subclasses and their `test_*` methods,
+    which a test runner calls and no code names. Vulture already skips
+    pytest names in test files. A decorated definition covers its decorator
+    lines too."""
+    try:
+        tree = ast.parse((cwd / rel).read_text(encoding="utf-8", errors="replace"))
+    except (OSError, SyntaxError, ValueError):
+        return set()
+    testcase = {"unittest.TestCase"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "unittest":
+            testcase.update(a.asname or a.name for a in node.names if a.name == "TestCase")
+    functions = (ast.FunctionDef, ast.AsyncFunctionDef)
+    entries = []
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and any(
+            ast.unparse(base) in testcase for base in node.bases
+        ):
+            tests = [
+                n for n in node.body if isinstance(n, functions) and n.name.startswith("test_")
+            ]
+            entries += [node, *tests]
+    lines = set()
+    for node in entries:
+        start = min([d.lineno for d in node.decorator_list] + [node.lineno])
+        lines.update(range(start, node.lineno + 1))
+    return lines
+
+
 def find_vulture(changeset, slot):
     """Dead code on a line the branch added."""
     analysis = changeset.settings.python["vulture"]
@@ -465,17 +495,28 @@ def find_vulture(changeset, slot):
     cmd = tool_argv("vulture", cwd)
     if cmd is None:
         return AnalysisResult()
+    # A caller in an unchanged module still uses a name, so vulture reads the
+    # whole selection. Findings stay limited to the changed files.
+    tree = sorted(
+        _selected(
+            jscpd_scan_files(changeset.changed, analysis.ext_re, cwd), analysis, settings, cwd
+        )
+    )
     whitelist = cwd / analysis.baseline
-    paths = [*files, str(whitelist)] if whitelist.is_file() else files
-    raw = run_external(
+    paths = [*tree, str(whitelist)] if whitelist.is_file() else tree
+    raw, problem = try_external(
         "vulture",
         [*cmd, *paths, "--min-confidence", str(analysis.min_confidence)],
         timeout,
         cwd,
     )
+    # Vulture reads the whole tree, so a failed run must not pass as no dead code.
+    if problem:
+        return AnalysisResult(f"  {problem}.", (problem,))
     # An import outranks a function, which outranks a name the file does use.
     rank = {"import": 0, "function": 1, "class": 1, "method": 1, "variable": 2, "attribute": 3}
     hits = []
+    discovered = {rel: _test_entry_lines(cwd, rel) for rel in files}
     for match in _VULTURE_HIT.finditer(raw):
         rel = _rel(match.group(1), cwd)
         number = int(match.group(2))
@@ -486,6 +527,8 @@ def find_vulture(changeset, slot):
             continue
         added = _added_lines(changeset.diff_for(rel))
         if added is not None and number not in added:
+            continue
+        if number in discovered[rel]:
             continue
         hits.append((rank.get(kind, 4), -confidence, number, rel, name))
     hits.sort()

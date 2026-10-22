@@ -542,6 +542,123 @@ class PythonAuditTests(unittest.TestCase):
         out = self.pair("vulture", extra=[("vulture-whitelist.py", "fresh_unused\n")])
         self.assertNotIn("fresh_unused", out)
 
+    @requires_pinned("vulture")
+    def test_vulture_sees_a_caller_in_an_unchanged_module(self):
+        out = self.cross_module()
+        self.assertNotIn("env_of", out)
+        self.assertIn("never_called", out)
+
+    @requires_pinned("vulture")
+    def test_vulture_reports_an_added_name_no_file_calls(self):
+        out = self.cross_module()
+        self.assertIn("author.py:9  dead code: never_called is unused", out)
+        self.assertNotIn("name_of", out)
+        self.assertNotIn("run_status.py", out)
+
+    @requires_pinned("vulture")
+    def test_vulture_treats_a_testcase_subclass_as_used(self):
+        added = textwrap.dedent(
+            """\
+            import unittest
+            from unittest import TestCase
+
+
+            class OldPathForward(unittest.TestCase):
+                def test_forwards(self):
+                    self.assertTrue(True)
+
+                def spare(self):
+                    return 1
+
+
+            class FromImport(TestCase):
+                def test_imported(self):
+                    self.assertTrue(True)
+
+
+            def leftover():
+                return 1
+            """
+        )
+        out = self.added_file("tests/manage/test_flow_hook_forward.py", added)
+        self.assertNotIn("OldPathForward", out)
+        self.assertNotIn("FromImport", out)
+        self.assertNotIn("test_forwards", out)
+        self.assertNotIn("test_imported", out)
+        self.assertIn("spare is unused", out)
+        self.assertIn("leftover is unused", out)
+
+    @requires_pinned("vulture")
+    def test_vulture_treats_pytest_names_as_used(self):
+        added = textwrap.dedent(
+            """\
+            def test_adds():
+                assert 1 + 1 == 2
+
+
+            class TestBox:
+                def test_opens(self):
+                    assert True
+
+                def spare(self):
+                    return 1
+
+
+            def leftover():
+                return 1
+            """
+        )
+        out = self.added_file("tests/box.test.py", added)
+        self.assertNotIn("test_adds", out)
+        self.assertNotIn("TestBox", out)
+        self.assertNotIn("test_opens", out)
+        self.assertIn("spare is unused", out)
+        self.assertIn("leftover is unused", out)
+
+    @requires_pinned("vulture")
+    def test_vulture_reports_pytest_names_outside_test_files(self):
+        added = textwrap.dedent(
+            """\
+            def test_connection():
+                return 1
+
+
+            class TestPool:
+                pass
+            """
+        )
+        out = self.added_file("src/db.py", added)
+        self.assertIn("test_connection is unused", out)
+        self.assertIn("TestPool is unused", out)
+
+    def cross_module(self):
+        """author.py gains `env_of`, which only the unchanged run_status.py
+        calls, and `never_called`, which no file calls. Unchanged lines hold
+        unused names of their own."""
+        with tempfile.TemporaryDirectory() as directory:
+            project = pathlib.Path(directory) / "project"
+            project.mkdir()
+            old_author = "def name_of():\n    return 'a'\n"
+            commit(project, "author.py", old_author)
+            commit(
+                project,
+                "run_status.py",
+                "import author\n\n\ndef status():\n    return author.env_of()\n",
+            )
+            fresh = "\n\ndef env_of():\n    return {}\n\n\ndef never_called():\n    return 1\n"
+            (project / "author.py").write_text(old_author + fresh, encoding="utf-8")
+            return stop(project, tree_config("vulture"))
+
+    def added_file(self, rel, text):
+        with tempfile.TemporaryDirectory() as directory:
+            project = pathlib.Path(directory) / "project"
+            project.mkdir()
+            commit(project, "seed.py", CALM)
+            path = project / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+            return stop(project, tree_config("vulture"))
+
     def pair(self, analysis, extra=None):
         """One analysis on. work.py already holds an old offender, including a
         class method. The changeset adds a second offender in that same file,
