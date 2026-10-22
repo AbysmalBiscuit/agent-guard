@@ -61,7 +61,7 @@ jobs:
           install: false
       - run: bash plugin/scripts/install.sh
       - run: uv sync --locked
-      - run: uv run python plugin/tests/run.py
+      - run: uv run python tests/run.py
 
   validate:
     name: validate plugin manifests

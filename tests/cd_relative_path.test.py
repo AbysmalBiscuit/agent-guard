@@ -18,7 +18,7 @@ import random
 import sys
 import types
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "plugin"))
 
 from agent_guard.checks import cd_relative_path as check_module
 

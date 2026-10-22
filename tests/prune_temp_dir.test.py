@@ -14,7 +14,7 @@ import sys
 import tempfile
 import time
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "plugin"))
 
 from agent_guard.checks import prune_temp_dir as prune_module
 
