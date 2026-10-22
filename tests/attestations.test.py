@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The plugin install of a `github:` tool fails without a GitHub attestation."""
+"""A plugin install of a GitHub release fails without a GitHub attestation."""
 
 import functools
 import hashlib
@@ -23,6 +23,7 @@ from pathlib import Path
 from hook_support import PLUGIN_ROOT
 
 GITHUB_HOSTS = ("github.com", "api.github.com", "mise-versions.jdx.dev")
+AQUA_REPOS = {"uv": "astral-sh/uv"}
 TARGETS = {
     ("Linux", "x86_64"): "x86_64-unknown-linux-gnu",
     ("Linux", "aarch64"): "aarch64-unknown-linux-gnu",
@@ -31,10 +32,14 @@ TARGETS = {
 }
 
 
-def github_tool():
-    """The `github:` tool and the version `mise.toml` pins for it."""
+def pinned_release(pin, asset):
+    """The release of the first tool whose name starts with `pin`, at the
+    version `mise.toml` pins. A `github:` tool tags its releases `v<version>`."""
     tools = tomllib.loads((PLUGIN_ROOT / "mise.toml").read_text(encoding="utf-8"))["tools"]
-    return next((name, version) for name, version in tools.items() if name.startswith("github:"))
+    name, version = next(item for item in tools.items() if item[0].startswith(pin))
+    if name.startswith("github:"):
+        return Release(name.removeprefix("github:"), f"v{version}", asset)
+    return Release(AQUA_REPOS[name], version, asset)
 
 
 def fixture_asset():
@@ -94,19 +99,18 @@ def make_certificates(directory):
 
 @dataclass
 class Release:
-    """One release of `tool` with one asset, and the requests GitHub got."""
+    """One release of `repo` with one asset, and the requests GitHub got."""
 
-    tool: str
-    version: str
+    repo: str
+    tag: str
     asset: bytes
     requests: list[str] = field(default_factory=list)
 
     def listing(self):
-        repo = self.tool.removeprefix("github:")
-        name = f"{repo.split('/')[1]}-{TARGETS[(platform.system(), platform.machine())]}.tar.gz"
+        name = f"{self.repo.split('/')[1]}-{TARGETS[(platform.system(), platform.machine())]}.tar.gz"
         return {
-            "tag_name": f"v{self.version}",
-            "name": f"v{self.version}",
+            "tag_name": self.tag,
+            "name": self.tag,
             "draft": False,
             "prerelease": False,
             "created_at": "2026-01-01T00:00:00Z",
@@ -117,9 +121,9 @@ class Release:
                     "name": name,
                     "size": len(self.asset),
                     "digest": f"sha256:{hashlib.sha256(self.asset).hexdigest()}",
-                    "url": f"https://api.github.com/repos/{repo}/releases/assets/1",
+                    "url": f"https://api.github.com/repos/{self.repo}/releases/assets/1",
                     "browser_download_url": (
-                        f"https://github.com/{repo}/releases/download/v{self.version}/{name}"
+                        f"https://github.com/{self.repo}/releases/download/{self.tag}/{name}"
                     ),
                 }
             ],
@@ -144,9 +148,7 @@ class FakeGitHub(http.server.BaseHTTPRequestHandler):
             self.reply(200, self.release.asset, "application/octet-stream")
         elif path.startswith("/repos/") and path.endswith("/releases"):
             self.reply(200, json.dumps([self.release.listing()]).encode(), "application/json")
-        elif path.startswith("/repos/") and path.endswith(
-            f"/releases/tags/v{self.release.version}"
-        ):
+        elif path.startswith("/repos/") and path.endswith(f"/releases/tags/{self.release.tag}"):
             self.reply(200, json.dumps(self.release.listing()).encode(), "application/json")
         else:
             self.reply(404, b'{"message": "Not Found"}', "application/json")
@@ -203,11 +205,17 @@ def start_proxy(test, release, certificate, key):
     return f"http://127.0.0.1:{server.server_address[1]}"
 
 
-def copy_plugin(destination, asset, *, backend="github:", locked=True):
-    """The plugin's install files, with only its `backend` tools pinned. The
-    lockfile, when the plugin has one, records the fixture's checksum, as a
-    release whose asset matches its pin but carries no attestation. With
-    `locked` false, the lockfile has no entry for the `backend` tools."""
+def toml_key(pin):
+    """`pin` as the start of a TOML key: a name with a backend is quoted."""
+    return f'"{pin}' if ":" in pin else pin
+
+
+def copy_plugin(destination, asset, *, pin="github:", locked=True):
+    """The plugin's install files, with only the tools named `pin...` pinned.
+
+    The lockfile, when the plugin has one, records the fixture's checksum, as
+    a release whose asset matches its pin but carries no attestation. With
+    `locked` false, the lockfile has no entry for those tools."""
     for relative in ("scripts/install.sh", "hooks/bootstrap-tools", ".claude-plugin/plugin.json"):
         (destination / relative).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(PLUGIN_ROOT / relative, destination / relative)
@@ -215,7 +223,7 @@ def copy_plugin(destination, asset, *, backend="github:", locked=True):
     for line in (PLUGIN_ROOT / "mise.toml").read_text(encoding="utf-8").splitlines():
         if line.startswith("["):
             section = line.strip()
-        if section == "[tools]" and "=" in line and not line.startswith(f'"{backend}'):
+        if section == "[tools]" and "=" in line and not line.startswith(toml_key(pin)):
             continue
         lines.append(line)
     (destination / "mise.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -224,7 +232,7 @@ def copy_plugin(destination, asset, *, backend="github:", locked=True):
         text = lock.read_text(encoding="utf-8")
         fixture = f"sha256:{hashlib.sha256(asset).hexdigest()}"
         for name, entries in tomllib.loads(text)["tools"].items():
-            if name.startswith("github:"):
+            if name.startswith(pin):
                 for entry in entries:
                     for key, value in entry.items():
                         if key.startswith("platforms.") and "checksum" in value:
@@ -234,7 +242,7 @@ def copy_plugin(destination, asset, *, backend="github:", locked=True):
             for line in text.splitlines():
                 if line.startswith("["):
                     section = line.lstrip("[")
-                if not section.startswith(f'tools."{backend}'):
+                if not section.startswith(f"tools.{toml_key(pin)}"):
                     kept.append(line)
             text = "\n".join(kept) + "\n"
         (destination / "mise.lock").write_text(text, encoding="utf-8")
@@ -251,7 +259,7 @@ class AttestationTests(unittest.TestCase):
         certs = self.root / "certs"
         certs.mkdir()
         ca, certificate, key = make_certificates(certs)
-        self.release = Release(*github_tool(), fixture_asset())
+        self.release = pinned_release("github:", fixture_asset())
         proxy = start_proxy(self, self.release, certificate, key)
         self.plugin = self.root / "plugin"
         copy_plugin(self.plugin, self.release.asset)
@@ -285,6 +293,13 @@ class AttestationTests(unittest.TestCase):
             timeout=120,
         )
 
+    def use_pin(self, pin):
+        """Pins only the tools whose name starts with `pin`, and serves the
+        release of the first one."""
+        release = pinned_release(pin, self.release.asset)
+        self.release.repo, self.release.tag = release.repo, release.tag
+        copy_plugin(self.plugin, self.release.asset, pin=pin)
+
     def assert_bootstrap_refused(self, message, *, asked_for_attestations=False):
         """The bootstrap exits 0, records the failure, and reports `message`."""
         result = self.bootstrap()
@@ -309,12 +324,17 @@ class AttestationTests(unittest.TestCase):
     def test_an_install_without_an_attestation_fails_and_the_bootstrap_reports_it(self):
         self.assert_install_refused()
 
+    def test_an_aqua_install_without_an_attestation_fails_and_the_bootstrap_reports_it(self):
+        self.use_pin("uv")
+        self.env.update(MISE_AQUA_GITHUB_ATTESTATIONS="false")
+        self.assert_install_refused()
+
     def test_a_pin_with_no_lock_entry_fails_and_the_bootstrap_reports_it(self):
         copy_plugin(self.plugin, self.release.asset, locked=False)
         self.assert_unlocked_pin_refused()
 
     def test_a_pipx_pin_with_no_lock_entry_fails_and_the_bootstrap_reports_it(self):
-        copy_plugin(self.plugin, self.release.asset, backend="pipx:", locked=False)
+        copy_plugin(self.plugin, self.release.asset, pin="pipx:", locked=False)
         self.assert_unlocked_pin_refused()
 
     def test_a_machine_setting_does_not_turn_off_the_attestation_check(self):
@@ -346,6 +366,7 @@ class AttestationTests(unittest.TestCase):
         self.env.update(
             MISE_GITHUB_ATTESTATIONS="false",
             MISE_GITHUB_GITHUB_ATTESTATIONS="false",
+            MISE_AQUA_GITHUB_ATTESTATIONS="false",
             MISE_LOCKFILE="false",
             MISE_LOCKED_VERIFY_PROVENANCE="false",
         )
