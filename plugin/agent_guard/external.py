@@ -95,9 +95,10 @@ def _runtime_env(name):
     return env
 
 
-def run_external(name, argv, timeout, cwd):
-    """Stdout of one registry tool. A timeout or a failed start is recorded
-    for doctor and returns empty, so the audit stays silent."""
+def try_external(name, argv, timeout, cwd):
+    """Stdout of one registry tool, and the problem that kept it from running.
+    A timeout, a failed start or a failed exit with no output gives empty
+    stdout and a problem. A run that finished gives an empty problem."""
     try:
         done = subprocess.run(
             argv,
@@ -111,20 +112,21 @@ def run_external(name, argv, timeout, cwd):
             check=False,
         )
     except subprocess.TimeoutExpired:
-        record_python_problem(
-            f"{name} timed out after {timeout}s, so the analysis stayed silent", cwd
-        )
-        return ""
+        return "", f"{name} timed out after {timeout}s, so the analysis stayed silent"
     except Exception:
-        record_python_problem(f"{name} failed to start, so the analysis stayed silent", cwd)
-        return ""
+        return "", f"{name} failed to start, so the analysis stayed silent"
     if done.returncode != 0 and not (done.stdout or "").strip():
-        record_python_problem(
-            f"{name} exited {done.returncode} with no output, so the analysis stayed silent",
-            cwd,
-        )
-        return ""
-    return done.stdout or ""
+        return "", f"{name} exited {done.returncode} with no output, so the analysis stayed silent"
+    return done.stdout or "", ""
+
+
+def run_external(name, argv, timeout, cwd):
+    """Stdout of one registry tool. A timeout or a failed start is recorded
+    for doctor and returns empty, so the audit stays silent."""
+    out, problem = try_external(name, argv, timeout, cwd)
+    if problem:
+        record_python_problem(problem, cwd)
+    return out
 
 
 def missing_tool_notes(enabled, cwd):

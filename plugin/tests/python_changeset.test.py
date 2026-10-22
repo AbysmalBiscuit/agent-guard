@@ -554,6 +554,47 @@ class PythonChangesetTests(unittest.TestCase):
         self.assertEqual(doctor.returncode, 0, doctor.stderr)
         self.assertIn("jscpd timed out after", doctor.stdout)
 
+    def test_a_vulture_timeout_shows_in_the_stop_output(self):
+        """Vulture reads the whole tree, so a run past its budget names the
+        timeout in the Stop output instead of passing as no dead code."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "home").mkdir()
+            sleep = shutil.which("sleep")
+            self.assertIsNotNone(sleep)
+            stall = install_stand_in(root, "stall", f"#!/bin/sh\nexec {sleep} 30\n")
+            init_repo(root)
+            pkg = root / "pkg"
+            pkg.mkdir()
+            (pkg / "__init__.py").write_text("", encoding="utf-8")
+            (pkg / "a.py").write_text("x = 1\n", encoding="utf-8")
+            commit_all(root, "base")
+            (pkg / "b.py").write_text("def never_called():\n    return 2\n", encoding="utf-8")
+            enable(
+                root,
+                textwrap.dedent(
+                    """\
+                    fallow = false
+
+                    [python]
+                    vulture = true
+                    timeout = 1
+                    """
+                ),
+            )
+            mise = stub_mise(root / "mise", {"vulture": stall})
+            hook = stop_hook(
+                root,
+                session="vulture-timeout",
+                extra_env={"PATH": f"{mise}:{os.environ['PATH']}"},
+                timeout=20,
+            )
+            doctor = doctor_hook(root)
+
+        self.assertEqual(hook.returncode, 0, hook.stderr)
+        self.assertIn("vulture timed out after", hook.stdout)
+        self.assertIn("vulture timed out after", doctor.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

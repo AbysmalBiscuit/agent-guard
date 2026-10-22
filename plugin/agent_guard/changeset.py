@@ -18,7 +18,7 @@ from pathlib import Path
 
 from .config import JSCPD_MAX_SIZE, JSCPD_MIN_LINES, JSCPD_MIN_TOKENS, _int
 from .contract import SILENT, advised, denied, git_base
-from .external import run_external, tool_argv
+from .external import run_external, tool_argv, try_external
 from .file_checks import run_changeset_checks
 from .paths import BARREL_OR_TEST, STATE_DIR, TEST_PATH
 from .process import (
@@ -504,12 +504,15 @@ def find_vulture(changeset, slot):
     )
     whitelist = cwd / analysis.baseline
     paths = [*tree, str(whitelist)] if whitelist.is_file() else tree
-    raw = run_external(
+    raw, problem = try_external(
         "vulture",
         [*cmd, *paths, "--min-confidence", str(analysis.min_confidence)],
         timeout,
         cwd,
     )
+    # Vulture reads the whole tree, so a failed run must not pass as no dead code.
+    if problem:
+        return AnalysisResult(f"  {problem}.", (problem,))
     # An import outranks a function, which outranks a name the file does use.
     rank = {"import": 0, "function": 1, "class": 1, "method": 1, "variable": 2, "attribute": 3}
     hits = []
