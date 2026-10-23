@@ -1,0 +1,20 @@
+[roles.manager]
+prefer = [{ harness = "claude", model = "opus", effort = "low" }]
+
+[roles.implementer]
+prefer = [{ harness = "claude", model = "opus", effort = "medium" }]
+
+[roles.code-reviewer]
+prefer = [{ harness = "codex", effort = "medium" }]
+
+[roles.pr-reviewer]
+prefer = [{ harness = "codex", effort = "medium" }]
+
+[roles.verifier]
+prefer = [{ harness = "codex", effort = "medium" }]
+
+[roles.conceptual-reviewer]
+prefer = [{ harness = "codex", effort = "medium" }]
+
+[roles.receiver]
+prefer = [{ harness = "codex", effort = "medium" }]
